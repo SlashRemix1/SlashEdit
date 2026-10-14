@@ -23,7 +23,7 @@ public partial class App : System.Windows.Application
         }
 
         e.Handled = true;
-        System.Windows.MessageBox.Show(Describe(e.Exception), "Dark Ages Viewer");
+        System.Windows.MessageBox.Show(Describe(e.Exception), AppInfo.Name);
     }
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
@@ -32,7 +32,7 @@ public partial class App : System.Windows.Application
         if (!IsCancellation(e.Exception))
         {
             Current?.Dispatcher.BeginInvoke(() =>
-                System.Windows.MessageBox.Show(Describe(e.Exception), "Dark Ages Viewer"));
+                System.Windows.MessageBox.Show(Describe(e.Exception), AppInfo.Name));
         }
     }
 
@@ -40,7 +40,7 @@ public partial class App : System.Windows.Application
     {
         if (e.ExceptionObject is Exception ex && !IsCancellation(ex))
         {
-            System.Windows.MessageBox.Show(Describe(ex), "Dark Ages Viewer");
+            System.Windows.MessageBox.Show(Describe(ex), AppInfo.Name);
         }
     }
 

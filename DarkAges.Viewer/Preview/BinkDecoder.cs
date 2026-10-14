@@ -63,7 +63,7 @@ public static class BinkDecoder
     private static readonly ConcurrentDictionary<string, BinkClip> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     public static string InstallHint =>
-        "Install FFmpeg and add it to PATH, or place ffmpeg.exe next to DarkAges.Viewer.exe. Dark Ages intros are Bink 1 (.bik).";
+        "Install FFmpeg and add it to PATH, or place ffmpeg.exe next to SlashEdit.exe. Dark Ages intros are Bink 1 (.bik).";
 
     public static BinkClip Decode(ArchiveEntry entry, BinkInfo info, byte[] data)
     {

@@ -1,6 +1,6 @@
-# Dark Ages DAT Viewer
+# SlashEdit
 
-Windows app for browsing and editing Dark Ages client archives (DAT, maps, metafiles, palettes, and related graphics).
+Windows viewer and editors for Dark Ages client archives (DAT, maps, metafiles, palettes, and related graphics).
 
 The app ships **empty**. Point it at a client folder you already have. This repository does not include DATs, maps, area dumps, or other game data.
 

@@ -86,6 +86,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = AppInfo.Name;
         _workspace = new AssetWorkspace(_settings);
         WorkspaceBox.ItemsSource = new[]
         {

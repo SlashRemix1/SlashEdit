@@ -12,7 +12,10 @@ public sealed class AppSettings
     public string FfmpegPath { get; set; } = "";
     public string RadVideoPath { get; set; } = "";
 
-    private static string PathName =>
+    private static string SettingsPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SlashEdit", "settings.json");
+
+    private static string LegacySettingsPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DarkAgesViewer", "settings.json");
 
     public void MigrateClients()
@@ -82,9 +85,12 @@ public sealed class AppSettings
     {
         try
         {
-            if (File.Exists(PathName))
+            string path = File.Exists(SettingsPath) ? SettingsPath
+                : File.Exists(LegacySettingsPath) ? LegacySettingsPath
+                : SettingsPath;
+            if (File.Exists(path))
             {
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(PathName)) ?? new AppSettings();
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
             }
         }
         catch
@@ -99,7 +105,7 @@ public sealed class AppSettings
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             MigrateClients();
             ExtraFolders = ExtraFolders
                 .Where(f => !string.IsNullOrWhiteSpace(f))
@@ -119,7 +125,7 @@ public sealed class AppSettings
                     return keep;
                 })
                 .ToList();
-            File.WriteAllText(PathName, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch
         {
