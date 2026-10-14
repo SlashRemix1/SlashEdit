@@ -33,14 +33,14 @@ Favorites (★) are saved per client. Warp labels and Back apply to map preview.
 ### Saving
 
 - Editors write one file back into a DAT when the format matches what that client already loads.
-- If a save would smash a layout the exe cannot read, the tool refuses it (for example HEA light overlays on 3.x / 7.x / Fragments).
+- If a save would smash a layout the exe cannot read, the tool refuses it (for example HEA light overlays on 3.x / 7.x ).
 - **Unpack DAT…** / **Repack folder to DAT…** are bulk operations, not the usual way to add one item or monster.
 
 ## Features
 
 **Browse**
 
-- Classic 13-character and LoD 32-character DAT names, folder archives, and Legends AoC LRAR (read-only)
+- Classic 13-character and LoD 32-character DAT names and folder archives
 - Grouped archive list, search, favorites, gallery of every entry
 - Preview EPF / MPF / HPF / SPF / EFA / HEA, palettes, maps, metafiles, fonts, and sound
 - Bink cinematics with FFmpeg on PATH, next to the exe, or set under **More ▾**
@@ -69,8 +69,6 @@ Favorites (★) are saved per client. Warp labels and Back apply to map preview.
 
 - `DarkAges.Viewer` — WPF UI
 - `DarkAges.Formats` — archive and graphic formats
-
-Local-only pieces are gitignored and will not be on GitHub: unit tests, Unity export, map/area dumps, and the old map-editor source dump.
 
 ## License
 
