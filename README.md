@@ -8,14 +8,26 @@ Author: SlashRemix · Version: 1.0 · Last updated: 10/14/2026
 
 ## Requirements
 
-- Windows
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+**To run SlashEdit you do not need Visual Studio.** Use a published Windows build from [Releases](https://github.com/SlashRemix1/SlashEdit/releases): unzip and run `SlashEdit.exe`. That zip is self-contained (no .NET install).
+
+**To build from source** you need Windows and one of:
+
+- [Visual Studio 2022](https://visualstudio.microsoft.com/vs/) **17.8 or later** with the **.NET desktop development** workload (WPF), or
+- the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and `dotnet` on PATH
+
+This project targets `net8.0-windows`. Visual Studio 2019 and earlier cannot open or build it. A missing .NET 8 targeting pack looks like a “Visual Studio version” error; install the desktop workload or the SDK above rather than an older VS.
 
 ## Build and run
 
 ```powershell
 dotnet build DarkAges.Viewer.sln
 dotnet run --project DarkAges.Viewer\DarkAges.Viewer.csproj
+```
+
+Publish a tester zip (self-contained x64, no Visual Studio on the other machine):
+
+```powershell
+dotnet publish DarkAges.Viewer\DarkAges.Viewer.csproj -c Release -r win-x64 --self-contained true -o artifacts\SlashEdit
 ```
 
 ## Getting started
