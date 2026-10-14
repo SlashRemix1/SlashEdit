@@ -1,0 +1,34 @@
+<Window x:Class="DarkAges.Viewer.NewMapWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New map"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#1B1D23">
+    <StackPanel Margin="16" Width="280">
+        <TextBlock Text="File name" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+        <TextBox x:Name="NameBox" Text="new.map" Margin="0,0,0,10"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Width" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <TextBox x:Name="WidthBox" Text="20"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Height" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <TextBox x:Name="HeightBox" Text="20"/>
+            </StackPanel>
+        </Grid>
+        <TextBlock Text="Fill floor ID (0 = empty)" Foreground="#9AA0AE" Margin="0,10,0,4"/>
+        <TextBox x:Name="FillBox" Text="1"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Create" IsDefault="True" Click="CreateClicked" Width="88" Margin="0,0,8,0"/>
+            <Button Content="Cancel" IsCancel="True" Width="88"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

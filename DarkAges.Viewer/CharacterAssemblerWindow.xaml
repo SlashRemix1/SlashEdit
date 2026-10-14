@@ -1,0 +1,98 @@
+<Window x:Class="DarkAges.Viewer.CharacterAssemblerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DarkAges.Viewer"
+        Title="Character Assembler"
+        Height="760" Width="980"
+        MinHeight="520" MinWidth="800"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Export ▾" Click="OpenButtonMenu"
+                        ToolTip="Save the paper-doll PNG, or the current outfit as JSON, CSV, or SQL">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export PNG…" Click="ExportClicked"
+                                      ToolTip="Save the assembled paper-doll as a PNG"/>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"
+                                      ToolTip="Write the current outfit ids as JSON"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"
+                                      ToolTip="Write the current outfit ids as CSV"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"
+                                      ToolTip="Write the current outfit ids as SQL INSERT statements"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Content="Save painted slot to DAT" Click="SaveSlotClicked" Margin="8,0,0,0"
+                        ToolTip="Write the painted armor/body/gear EPF back into the khan DAT"/>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Layer khan body, face, armor, weapon, and gear."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Column="0" Margin="8" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock x:Name="GenderLabel" Text="Gender" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="GenderBox" SelectionChanged="OutfitChanged"/>
+                    <TextBlock x:Name="MotionLabel" Text="Motion" Foreground="#9AA0AE" Margin="0,10,0,4"/>
+                    <ComboBox x:Name="MotionBox" SelectionChanged="OutfitChanged"/>
+                    <TextBlock Text="Direction" Foreground="#9AA0AE" Margin="0,10,0,4"/>
+                    <DockPanel>
+                        <TextBlock x:Name="DirLabel" DockPanel.Dock="Right" Text="5" Foreground="#9AA0AE"
+                                   VerticalAlignment="Center" Width="24"/>
+                        <Slider x:Name="DirSlider" Minimum="0" Maximum="7" TickFrequency="1" IsSnapToTickEnabled="True"
+                                Value="5" ValueChanged="OutfitChanged"/>
+                    </DockPanel>
+                    <TextBlock Text="Paint slot" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <ComboBox x:Name="PaintSlotBox" SelectionChanged="OutfitChanged"
+                              ToolTip="Top canvas paints one khan layer. Paper-doll is preview only. Body/Armor/etc. need an id before their EPF loads."/>
+                    <TextBlock x:Name="BodyLabel" Text="Body" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <ComboBox x:Name="BodyBox" SelectionChanged="OutfitChanged"/>
+                    <StackPanel x:Name="KhanGearPanel">
+                        <TextBlock Text="Face" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="FaceBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Head" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="HeadBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Armor" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="ArmorBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Overcoat" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="CoatBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Weapon" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="WeaponBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Shield" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="ShieldBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Boots" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="BootsBox" SelectionChanged="OutfitChanged"/>
+                        <TextBlock Text="Accessory" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                        <ComboBox x:Name="AccessoryBox" SelectionChanged="OutfitChanged"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="6"/>
+                    <RowDefinition Height="220"/>
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0" Margin="8,8,8,0" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1">
+                    <local:PixelPaintControl x:Name="Paint"/>
+                </Border>
+                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"/>
+                <Border Grid.Row="2" Margin="8,0,8,8" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1">
+                    <Image x:Name="PreviewImage" Stretch="Uniform" Margin="8"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

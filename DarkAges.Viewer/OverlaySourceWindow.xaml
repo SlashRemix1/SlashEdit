@@ -1,0 +1,36 @@
+<Window x:Class="DarkAges.Viewer.OverlaySourceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Apply overlay"
+        Width="520" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#1B1D23">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#9AA0AE" Margin="0,0,0,10"
+                   Text="Pick an effect (EFA/EPF) or light sheet (HEA). Apply entire map stretches it to every tile. Stamp places it around the next click."/>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="Filter" VerticalAlignment="Center" Foreground="#9AA0AE" Margin="0,0,8,0"/>
+            <TextBox x:Name="FilterBox" TextChanged="FilterChanged"/>
+        </DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Apply entire map" Width="140" Margin="0,0,8,0" Click="ApplyEntireClicked"
+                    ToolTip="Resample this graphic onto every tile of the current overlay"/>
+            <Button Content="Stamp on click" Width="120" Margin="0,0,8,0" Click="StampClicked"
+                    ToolTip="Click the map after this dialog to stamp the graphic around that tile"/>
+            <Button Content="Cancel" Width="88" IsCancel="True"/>
+        </StackPanel>
+        <Border DockPanel.Dock="Right" Width="180" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1" Margin="8,0,0,0">
+            <DockPanel>
+                <TextBlock x:Name="PreviewLabel" DockPanel.Dock="Bottom" Foreground="#9AA0AE" Margin="8,4,8,8"
+                           TextWrapping="Wrap" Text="Select an effect."/>
+                <Image x:Name="PreviewImage" Stretch="Uniform" Margin="8"
+                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+            </DockPanel>
+        </Border>
+        <ListBox x:Name="SourceList" DisplayMemberPath="Name" SelectionChanged="SourceChanged"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.CanContentScroll="True"
+                 MouseDoubleClick="SourceDoubleClicked"/>
+    </DockPanel>
+</Window>

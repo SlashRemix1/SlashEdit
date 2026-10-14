@@ -1,0 +1,39 @@
+<Window x:Class="DarkAges.Viewer.MusicBrowserWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Music / Sound"
+        Height="560" Width="720"
+        MinHeight="360" MinWidth="520"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Play" Click="PlayClicked"/>
+                <Button Content="Stop" Click="StopClicked" Margin="8,0,0,0"/>
+                <Button Content="Replace file…" Click="ReplaceClicked" Margin="8,0,0,0"
+                        ToolTip="Swap this MP3/WAV with another file and write it into the DAT"/>
+                <Button Content="Extract…" Click="ExtractClicked" Margin="8,0,0,0"/>
+                <Button Content="Export ▾" Click="OpenButtonMenu" Margin="8,0,0,0"
+                        ToolTip="Write the music list as JSON, CSV, or SQL">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="MP3 and WAV inside client DATs."/>
+            </StatusBarItem>
+        </StatusBar>
+        <DockPanel Margin="8">
+            <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="FilterChanged"/>
+            <ListBox x:Name="FileList" DisplayMemberPath="Label" Background="#12141A"
+                     BorderBrush="#3A3F4B" MouseDoubleClick="PlayClicked"/>
+        </DockPanel>
+    </DockPanel>
+</Window>

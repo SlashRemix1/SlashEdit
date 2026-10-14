@@ -1,0 +1,54 @@
+<UserControl x:Class="DarkAges.Viewer.PixelPaintControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#12141A"
+             Focusable="True"
+             PreviewKeyDown="OnPreviewKeyDown"
+             PreviewMouseWheel="OnPreviewMouseWheel">
+    <DockPanel>
+        <WrapPanel DockPanel.Dock="Top" Margin="6,6,6,4">
+            <RadioButton x:Name="PencilBox" Content="Pencil" IsChecked="True" Margin="0,0,8,4"
+                         GroupName="PaintTool" Checked="ToolChanged"
+                         ToolTip="Left-drag paints pixels. Right-drag erases."/>
+            <RadioButton x:Name="FillBox" Content="Fill" Margin="0,0,8,4"
+                         GroupName="PaintTool" Checked="ToolChanged"/>
+            <RadioButton x:Name="EyedropBox" Content="Eyedropper" Margin="0,0,8,4"
+                         GroupName="PaintTool" Checked="ToolChanged"
+                         ToolTip="Click a pixel to copy its color. Right-click also samples."/>
+            <TextBlock Text="Size" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="4,0,6,4"/>
+            <Slider x:Name="SizeSlider" Width="80" Minimum="1" Maximum="8" TickFrequency="1"
+                    IsSnapToTickEnabled="True" Value="1" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <Button Content="−" Width="28" Click="ZoomOutClicked" Margin="0,0,4,4" ToolTip="Zoom out"/>
+            <TextBlock x:Name="ZoomLabel" Text="8×" Foreground="#9AA0AE" VerticalAlignment="Center"
+                       Width="32" TextAlignment="Center" Margin="0,0,4,4"/>
+            <Button Content="+" Width="28" Click="ZoomInClicked" Margin="0,0,8,4" ToolTip="Zoom in"/>
+            <Button Content="Undo" Click="UndoClicked" Margin="0,0,4,4" ToolTip="Ctrl+Z"/>
+            <Button Content="Redo" Click="RedoClicked" Margin="0,0,8,4" ToolTip="Ctrl+Y"/>
+            <Border x:Name="ColorSwatch" Width="28" Height="22" Margin="0,0,8,4" BorderBrush="#3A3F4B"
+                    BorderThickness="1" Background="White" Cursor="Hand" MouseLeftButtonDown="ColorSwatchClicked"
+                    ToolTip="Click to pick a color"/>
+            <CheckBox x:Name="GridBox" Content="Grid" IsChecked="True" VerticalAlignment="Center"
+                      Margin="0,0,0,4" Checked="GridChanged" Unchecked="GridChanged"/>
+        </WrapPanel>
+        <ScrollViewer x:Name="PaletteScroller" DockPanel.Dock="Top" MaxHeight="72"
+                      VerticalScrollBarVisibility="Auto" Margin="6,0,6,4" Visibility="Collapsed">
+            <WrapPanel x:Name="PaletteHost"/>
+        </ScrollViewer>
+        <TextBlock x:Name="HintText" DockPanel.Dock="Bottom" Margin="6,4" Foreground="#9AA0AE" FontSize="11"
+                   Text="Wheel zooms. Middle-drag pans. Right-click erases or samples."/>
+        <ScrollViewer x:Name="Scroller" Background="#12141A" HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      PreviewMouseLeftButtonDown="OnSurfaceDown"
+                      MouseLeftButtonUp="OnSurfaceUp"
+                      MouseRightButtonDown="OnSurfaceDown"
+                      MouseRightButtonUp="OnSurfaceUp"
+                      MouseMove="OnSurfaceMove"
+                      MouseLeave="OnSurfaceLeave"
+                      MouseDown="OnMiddleDown"
+                      MouseUp="OnMiddleUp">
+            <Image x:Name="CanvasImage" Stretch="None" SnapsToDevicePixels="True"
+                   RenderOptions.BitmapScalingMode="NearestNeighbor"
+                   RenderOptions.EdgeMode="Aliased"/>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

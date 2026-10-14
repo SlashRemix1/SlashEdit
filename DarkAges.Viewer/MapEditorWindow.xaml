@@ -1,0 +1,382 @@
+<Window x:Class="DarkAges.Viewer.MapEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DarkAges.Viewer"
+        Title="Map Editor"
+        Height="900" Width="1400"
+        MinHeight="640" MinWidth="1100"
+        Background="#1B1D23"
+        PreviewKeyDown="WindowPreviewKeyDown">
+    <Grid>
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New map" Click="NewClicked"/>
+                <MenuItem Header="_Open…" Click="OpenClicked"/>
+                <MenuItem Header="_Save" Click="SaveClicked"
+                          ToolTip="Overwrite the .map on disk, or write back into maps.dat when this map came from a DAT"/>
+                <MenuItem Header="Save _as…" Click="SaveAsClicked"/>
+                <Separator/>
+                <MenuItem Header="Add maps folder…" Click="AddMapsFolderClicked"
+                          ToolTip="Add another folder to search for .map files"/>
+                <MenuItem Header="Load server world…" Click="LoadServerWorldClicked"
+                          ToolTip="Read-only Hybrasyl xml/maps or Chaos MapInstances. Does not write the DAT."/>
+                <MenuItem Header="Clear server overlay" Click="ClearServerWorldClicked"/>
+                <Separator/>
+                <MenuItem Header="Export map image…" Click="ExportMapImageClicked"/>
+                <MenuItem Header="Export tab map (iso)…" Click="ExportTabIsoClicked"/>
+                <MenuItem Header="Export tab map (square)…" Click="ExportTabSquareClicked"/>
+                <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"
+                          ToolTip="Write map tiles as JSON"/>
+                <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"
+                          ToolTip="Write map tiles as CSV"/>
+                <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"
+                          ToolTip="Write map tiles as SQL INSERT statements"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="UndoClicked" InputGestureText="Ctrl+Z"/>
+                <MenuItem Header="_Redo" Click="RedoClicked" InputGestureText="Ctrl+Y"/>
+                <Separator/>
+                <MenuItem Header="Copy tile x, y" Click="CopyTileClicked"
+                          ToolTip="Copy the hovered tile as x, y (Ctrl+Shift+C)"/>
+                <Separator/>
+                <MenuItem Header="Use selection as stamp" Click="StampSelectionClicked"
+                          ToolTip="Turn the selected tiles into a stamp for this session"/>
+                <MenuItem Header="Save stamp preset" Click="SavePresetClicked"/>
+                <MenuItem Header="Remove stamp preset" Click="RemovePresetClicked"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem x:Name="WarpLabelsBox" Header="Warp labels" IsCheckable="True"
+                          ToolTip="Always show To: map x, y on exit tiles"
+                          Click="RedrawClicked"/>
+                <MenuItem x:Name="ServerOverlayBox" Header="Server overlay" IsCheckable="True" IsChecked="True"
+                          ToolTip="Show read-only Hybrasyl XML / Chaos JSON warps, music, and light type"
+                          Click="ServerOverlayToggled"/>
+                <MenuItem x:Name="HeaLightsBox" Header="Show overlays" IsCheckable="True" IsChecked="True"
+                          ToolTip="Show painted light and effect overlays on the map"
+                          Click="RedrawClicked"/>
+                <Separator/>
+                <MenuItem Header="Zoom in" Click="ZoomInClicked"/>
+                <MenuItem Header="Zoom out" Click="ZoomOutClicked"/>
+                <MenuItem Header="Reset zoom" Click="ZoomResetClicked"/>
+            </MenuItem>
+            <MenuItem Header="_Map">
+                <MenuItem Header="Resize…" Click="ResizeClicked"
+                          ToolTip="Add or remove tiles on the left, right, top, or bottom. Negative numbers shrink that side."/>
+                <Separator/>
+                <MenuItem x:Name="OverlaySaveMenu" Header="Save overlay" Click="OverlaySaveClicked"
+                          ToolTip="Write the light and effect HEA sheets into seo.dat (or the graphics folder)"/>
+                <MenuItem Header="Apply image overlay…" Click="OverlayImageClicked"
+                          ToolTip="Stretch a PNG or JPEG onto the current overlay"/>
+                <MenuItem Header="Apply effect overlay…" Click="OverlayEffectClicked"
+                          ToolTip="Stretch an EFA/EPF onto the whole overlay, or stamp it on click"/>
+                <Separator/>
+                <MenuItem Header="Randomize…" Click="RandomizeClicked"/>
+                <MenuItem Header="Reroll walls" Click="RerollWallsClicked"/>
+                <MenuItem Header="Reroll floors" Click="RerollFloorsClicked"/>
+                <MenuItem Header="Reroll trees" Click="RerollTreesClicked"/>
+            </MenuItem>
+            <MenuItem Header="_Warps">
+                <MenuItem Header="All warps…" Click="AllWarpsClicked"/>
+                <MenuItem Header="Check warps…" Click="CheckWarpsClicked"/>
+                <Separator/>
+                <MenuItem Header="Import warps…" Click="ImportWarpsClicked"/>
+                <MenuItem Header="Save warps" Click="SaveWarpsClicked"/>
+                <Separator/>
+                <MenuItem Header="Open beside" Click="OpenBesideClicked"
+                          ToolTip="Open a second Map Editor. Alt+click a warp also opens the destination there."/>
+            </MenuItem>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="Walk flags (sotp)…" Click="SotpClicked"/>
+                <MenuItem Header="Light metafile…" Click="LightEditorClicked"
+                          ToolTip="Edit 7.xx Light metafile types and map assignments. Not an HEA overlay."/>
+                <MenuItem Header="Macros…" Click="MacrosClicked"
+                          ToolTip="Bind floor, wall, or structure stamps to keys 0–9"/>
+            </MenuItem>
+        </Menu>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8,6" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="−" Width="28" Click="ZoomOutClicked" ToolTip="Zoom out (mouse wheel)" Margin="0"/>
+                    <TextBlock x:Name="ZoomLabel" Text="100%" VerticalAlignment="Center" Margin="6,0" MinWidth="40" TextAlignment="Center"/>
+                    <Button Content="+" Width="28" Click="ZoomInClicked" ToolTip="Zoom in (mouse wheel)"/>
+                    <Button Content="100%" Click="ZoomResetClicked" ToolTip="Reset zoom (Ctrl+0)"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="New" Click="NewClicked"/>
+                    <Button Content="Open" Click="OpenClicked"/>
+                    <Button Content="Save" Click="SaveClicked"
+                            ToolTip="Overwrite the .map on disk, or write back into maps.dat when this map came from a DAT"/>
+                    <Border Style="{StaticResource ToolSep}"/>
+                    <Button x:Name="UndoButton" Content="Undo" Click="UndoClicked" ToolTip="Ctrl+Z" IsEnabled="False"/>
+                    <Button x:Name="RedoButton" Content="Redo" Click="RedoClicked" ToolTip="Ctrl+Y" IsEnabled="False"/>
+                    <Button x:Name="BackButton" Content="Back" Click="BackClicked" IsEnabled="False"
+                            ToolTip="Return to the previous map (Alt+Left)"/>
+                    <Border Style="{StaticResource ToolSep}"/>
+                    <RadioButton x:Name="PaintModeBox" Content="Paint" GroupName="MapTool" IsChecked="True"
+                                 Margin="0,0,10,0" Checked="EditorModeChanged"
+                                 ToolTip="Paint floors, walls, and stamps"/>
+                    <RadioButton x:Name="SelectModeBox" Content="Select" GroupName="MapTool"
+                                 Margin="0,0,10,0" Checked="EditorModeChanged"
+                                 ToolTip="Drag a tile rectangle (or hold Shift and drag). Then Edit → Use selection as stamp."/>
+                    <RadioButton x:Name="WarpEditBox" Content="Warp" GroupName="MapTool"
+                                 Margin="0,0,10,0" Checked="EditorModeChanged"
+                                 ToolTip="Drag a rectangle to add a warp. Click an existing warp to edit."/>
+                    <RadioButton x:Name="OverlayModeBox" Content="Overlay" GroupName="MapTool"
+                                 Checked="EditorModeChanged"
+                                 ToolTip="Paint map lighting, or apply an effect graphic as a full overlay or stamp"/>
+                    <Border Style="{StaticResource ToolSep}"/>
+                    <CheckBox x:Name="WarpsBox" Content="Warps" VerticalAlignment="Center" IsChecked="True" Margin="0,0,10,0"
+                              ToolTip="Light blue = exit. Yellow = landing. Click jumps in this window; Alt+click opens beside."
+                              Checked="RedrawClicked" Unchecked="RedrawClicked"/>
+                    <CheckBox x:Name="ServerBox" Content="Server" VerticalAlignment="Center" IsChecked="True" Margin="0,0,10,0"
+                              ToolTip="Magenta = Hybrasyl/Chaos warp (read-only). Orange = server landing."
+                              Checked="ServerOverlayToggled" Unchecked="ServerOverlayToggled"/>
+                    <CheckBox x:Name="TabMapBox" Content="Tab" VerticalAlignment="Center" Margin="0,0,10,0"
+                              ToolTip="Gray overlay on tiles a player cannot walk (sotp == 15)."
+                              Checked="RedrawClicked" Unchecked="RedrawClicked"/>
+                    <CheckBox x:Name="SnowBox" Content="Snow" VerticalAlignment="Center"
+                              Checked="RedrawClicked" Unchecked="RedrawClicked"/>
+                    <Border Style="{StaticResource ToolSep}"/>
+                    <Button Content="Randomize ▾" Click="OpenButtonMenu"
+                            ToolTip="Generate or reroll the current map">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Randomize…" Click="RandomizeClicked"/>
+                                <MenuItem Header="Reroll walls" Click="RerollWallsClicked"/>
+                                <MenuItem Header="Reroll floors" Click="RerollFloorsClicked"/>
+                                <MenuItem Header="Reroll trees" Click="RerollTreesClicked"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <Button x:Name="StampSelectionButton" Content="Stamp" Click="StampSelectionClicked"
+                            IsEnabled="False"
+                            ToolTip="Turn the selected tiles into a stamp for this session"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Paint, Select, Warp, or Overlay in the toolbar. Wheel zooms. Shift-drag selects. Middle-click eyedrops. Right-drag pans. Ctrl+Z/Y undo/redo."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Border x:Name="MacroBar" DockPanel.Dock="Bottom" Visibility="Collapsed"
+                Background="#1F2229" BorderBrush="#3A3F4B" BorderThickness="0,1,0,0" Padding="8,6">
+            <ItemsControl x:Name="MacroBarHost" HorizontalAlignment="Center">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="56" Height="56" Margin="3" Padding="2"
+                                Background="#12141A" BorderThickness="2"
+                                BorderBrush="{Binding SlotBorder}"
+                                Opacity="{Binding SlotOpacity}"
+                                Cursor="Hand" ToolTip="{Binding Label}"
+                                MouseLeftButtonDown="MacroBarSlotClicked" Tag="{Binding Key}">
+                            <Grid>
+                                <Image Source="{Binding Image}" Stretch="Uniform" Margin="2"
+                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Background="#CC12141A" Padding="4,1,4,1" CornerRadius="2" Margin="0,1,1,0">
+                                    <TextBlock Text="{Binding Key}" FontSize="11" FontWeight="Bold"
+                                               Foreground="#F2F0ED"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="Maps" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Content="Go" Width="40" Click="JumpIdClicked"
+                            ToolTip="Open map by id"/>
+                    <TextBox x:Name="JumpIdBox" ToolTip="Jump to map id" KeyDown="JumpIdKeyDown"/>
+                </DockPanel>
+                <ComboBox x:Name="RecentMapBox" DockPanel.Dock="Top" Margin="0,0,0,6"
+                          DisplayMemberPath="Name" SelectionChanged="RecentMapChanged"
+                          ToolTip="Recently opened maps"/>
+                <TextBox x:Name="MapFilterBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="MapFilterChanged"/>
+                <ListBox x:Name="MapList" DockPanel.Dock="Top" Height="140" DisplayMemberPath="Name"
+                         MouseDoubleClick="MapListOpened"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.CanContentScroll="True"/>
+                <TextBlock DockPanel.Dock="Top" Text="Area" Foreground="#9AA0AE" Margin="0,8,0,4"/>
+                <Border DockPanel.Dock="Top" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1"
+                        Padding="8,6" Margin="0,0,0,8">
+                    <TextBlock x:Name="AreaInfoText" Foreground="#E8E6E3" FontSize="12" TextWrapping="Wrap"
+                               Text="Open a map to see area name, music, flags, and script."/>
+                </Border>
+                <TextBlock DockPanel.Dock="Top" Text="Size" Foreground="#9AA0AE" Margin="0,0,0,4"
+                           ToolTip="Read as picks a known W×H when the file size is ambiguous. Resize adds or removes tiles on each side."/>
+                <ComboBox x:Name="SizeBox" DockPanel.Dock="Top" Margin="0,0,0,6" SelectionChanged="MapSizeChanged"
+                          ToolTip="Interpret this file as a known map size"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="Resize" Width="64" Click="ResizeClicked" Margin="0"
+                            ToolTip="Add or remove tiles on the left, right, top, or bottom. Negative numbers shrink that side."/>
+                    <TextBlock Text="W" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#9AA0AE"/>
+                    <TextBox x:Name="WidthBox" Width="44" Text="20" Margin="0,0,8,0"/>
+                    <TextBlock Text="H" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#9AA0AE"/>
+                    <TextBox x:Name="HeightBox" Width="44" Text="20" Margin="0,0,8,0"/>
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Floor atlas offset" Foreground="#9AA0AE" Margin="0,0,0,4"
+                           ToolTip="Shift TILEA lookup so map floor ids read later tiles in the atlas."/>
+                <TextBox x:Name="FloorOffsetBox" DockPanel.Dock="Top" Text="0" Margin="0,0,0,8"
+                         LostFocus="RedrawClicked" KeyDown="FloorOffsetKeyDown"/>
+                <TextBlock DockPanel.Dock="Top" Text="Paint layer" Foreground="#9AA0AE" Margin="0,4,0,4"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <RadioButton x:Name="FloorLayer" Content="Floor" IsChecked="True" Margin="0,0,10,0" Checked="LayerChanged"/>
+                    <RadioButton x:Name="LeftLayer" Content="Left wall" Margin="0,0,10,0" Checked="LayerChanged"/>
+                    <RadioButton x:Name="RightLayer" Content="Right wall" Margin="0,0,10,0" Checked="LayerChanged"/>
+                    <RadioButton x:Name="StructureLayer" Content="Structure" Checked="LayerChanged"
+                                 ToolTip="Stamp a whole grouped building instead of one wall tile"/>
+                </StackPanel>
+                <StackPanel x:Name="OverlayTools" DockPanel.Dock="Top" Margin="0,0,0,8" Visibility="Collapsed">
+                    <TextBlock Text="Overlay" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <RadioButton x:Name="OverlayLightBox" Content="Light" GroupName="OverlayKind"
+                                     IsChecked="True" Margin="0,0,10,0"
+                                     ToolTip="Grayscale illumination saved as a numbered .hea mask"/>
+                        <RadioButton x:Name="OverlayEffectBox" Content="Effect" GroupName="OverlayKind"
+                                     ToolTip="Colored additive overlay saved as fx#####.hea. Apply an EFA/EPF to the whole map or stamp it."/>
+                    </StackPanel>
+                    <DockPanel Margin="0,0,0,4">
+                        <TextBlock Text="Radius" Width="56" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OverlayRadiusLabel" DockPanel.Dock="Right" Width="24" Text="3"
+                                   Foreground="#9AA0AE" TextAlignment="Right"/>
+                        <Slider x:Name="OverlayRadiusBox" Minimum="0" Maximum="12" Value="3"
+                                TickFrequency="1" IsSnapToTickEnabled="True"
+                                ValueChanged="OverlaySliderChanged"/>
+                    </DockPanel>
+                    <DockPanel Margin="0,0,0,6">
+                        <TextBlock Text="Strength" Width="56" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OverlayStrengthLabel" DockPanel.Dock="Right" Width="28" Text="180"
+                                   Foreground="#9AA0AE" TextAlignment="Right"/>
+                        <Slider x:Name="OverlayStrengthBox" Minimum="1" Maximum="255" Value="180"
+                                ValueChanged="OverlaySliderChanged"/>
+                    </DockPanel>
+                    <CheckBox x:Name="OverlayEraseBox" Content="Erase" Margin="0,0,0,8"
+                              ToolTip="Paint removes overlay instead of adding light or color"/>
+                    <Button Content="Apply image…" Click="OverlayImageClicked" Margin="0,0,0,4"
+                            ToolTip="Stretch a PNG or JPEG onto every tile of this overlay"/>
+                    <Button Content="Apply effect…" Click="OverlayEffectClicked" Margin="0,0,0,4"
+                            ToolTip="Apply an EFA/EPF to the entire overlay, or stamp it on the next click"/>
+                    <Button Content="Clear overlay" Click="OverlayClearClicked" Margin="0,0,0,4"/>
+                    <Button x:Name="OverlaySaveButton" Content="Save overlay" Click="OverlaySaveClicked"
+                            ToolTip="Write the light and effect HEA sheets into seo.dat"/>
+                </StackPanel>
+                <WrapPanel x:Name="StampGroupBar" DockPanel.Dock="Top" Margin="0,0,0,8" Visibility="Collapsed">
+                    <RadioButton x:Name="GroupBuildings" Content="Buildings" GroupName="StampGroup"
+                                 IsChecked="True" Margin="0,0,10,2" Checked="StampGroupChanged"/>
+                    <RadioButton x:Name="GroupPairs" Content="Pairs" GroupName="StampGroup"
+                                 Margin="0,0,10,2" Checked="StampGroupChanged"
+                                 ToolTip="Left/right wall partners: corners, 3-wide runs, and a house for each matched set"/>
+                    <RadioButton x:Name="GroupTrees" Content="Trees" GroupName="StampGroup"
+                                 Margin="0,0,10,2" Checked="StampGroupChanged"/>
+                    <RadioButton x:Name="GroupPaths" Content="Pathing" GroupName="StampGroup"
+                                 Margin="0,0,10,2" Checked="StampGroupChanged"/>
+                    <RadioButton x:Name="GroupOther" Content="Other" GroupName="StampGroup"
+                                 Margin="0,0,0,2" Checked="StampGroupChanged"/>
+                </WrapPanel>
+                <ComboBox x:Name="PaletteCategoryBox" DockPanel.Dock="Top" Margin="0,0,0,6"
+                          SelectionChanged="PaletteCategoryChanged"
+                          ToolTip="Named floor and wall families"/>
+                <TextBlock DockPanel.Dock="Top" Text="Brush" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <Border DockPanel.Dock="Top" Height="90" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1" Margin="0,0,0,8">
+                    <DockPanel>
+                        <TextBlock x:Name="BrushLabel" DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,0,0,6" Foreground="#9AA0AE"/>
+                        <Image x:Name="BrushImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor" Margin="8"/>
+                    </DockPanel>
+                </Border>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Content="Go" Width="40" Click="GoTileClicked"/>
+                    <TextBox x:Name="TileIdBox" Text="1"/>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Left" Content="◀" Width="32" Click="PrevPageClicked"/>
+                    <Button DockPanel.Dock="Right" Content="▶" Width="32" Click="NextPageClicked"/>
+                    <TextBlock x:Name="PageLabel" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#9AA0AE"/>
+                </DockPanel>
+                <Button DockPanel.Dock="Top" Content="Eraser (empty tile)" Click="EraserClicked" Margin="0,0,0,8"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl x:Name="TilePalette">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="76" Height="58" Margin="2" Background="#252830" BorderThickness="1"
+                                        BorderBrush="{Binding Border}"
+                                        MouseLeftButtonDown="PaletteTileClicked" Cursor="Hand"
+                                        ToolTip="{Binding Label}">
+                                    <Image Source="{Binding Image}" Stretch="Uniform"
+                                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <Grid Grid.Column="2">
+            <Popup x:Name="WarpHoverPopup" AllowsTransparency="True" Placement="Relative"
+                   IsHitTestVisible="False" Focusable="False" StaysOpen="True">
+                <Border Background="#F2252830" BorderBrush="#6EA8FE" BorderThickness="1"
+                        CornerRadius="4" Padding="8,4">
+                    <TextBlock x:Name="WarpHoverText" Foreground="#F2F0ED" FontSize="12"/>
+                </Border>
+            </Popup>
+            <Border x:Name="AreaOverlay" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
+                    Background="#E2252830" BorderBrush="#6EA8FE" BorderThickness="1" CornerRadius="4"
+                    Padding="10,8" IsHitTestVisible="False" Panel.ZIndex="2">
+                <TextBlock x:Name="AreaOverlayText" Foreground="#F2F0ED" FontSize="13" TextWrapping="Wrap"
+                           MaxWidth="360"/>
+            </Border>
+            <ScrollViewer x:Name="MapScroller" Background="#12141A"
+                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                          PreviewMouseRightButtonDown="MapPanDown"
+                          PreviewMouseMove="MapPanMove"
+                          PreviewMouseRightButtonUp="MapPanUp"
+                          LostMouseCapture="MapPanLost"
+                          PreviewMouseWheel="MapWheelZoom">
+                <Grid x:Name="MapHost">
+                    <Grid.LayoutTransform>
+                        <ScaleTransform x:Name="MapScale" ScaleX="1" ScaleY="1"/>
+                    </Grid.LayoutTransform>
+                    <Image x:Name="MapImage" Stretch="None" RenderOptions.BitmapScalingMode="NearestNeighbor"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                           Cursor="Pen"
+                           MouseLeftButtonDown="MapMouseDown"
+                           MouseLeftButtonUp="MapMouseUp"
+                           MouseMove="MapMouseMove"
+                           MouseLeave="MapMouseLeave"
+                           MouseDown="MapMiddleDown"
+                           LostMouseCapture="MapLostCapture"/>
+                    <Canvas x:Name="GhostLayer" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <Image x:Name="GhostImage" Stretch="None" Opacity="0.55"
+                               RenderOptions.BitmapScalingMode="NearestNeighbor" Visibility="Collapsed"/>
+                        <Polygon x:Name="SelectionShape" Fill="#44FFB74D" Stroke="#FFB74D" StrokeThickness="2"
+                                 Visibility="Collapsed"/>
+                    </Canvas>
+                    <Canvas x:Name="WarpLabelLayer" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                </Grid>
+            </ScrollViewer>
+            </Grid>
+        </Grid>
+    </DockPanel>
+    <local:BusyOverlay x:Name="BusyHost"/>
+    </Grid>
+</Window>

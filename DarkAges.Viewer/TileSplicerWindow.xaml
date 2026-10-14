@@ -1,0 +1,70 @@
+<Window x:Class="DarkAges.Viewer.TileSplicerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TILEA splicer"
+        Height="720" Width="1100"
+        MinHeight="520" MinWidth="860"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Open sheet…" Click="OpenClicked"
+                        ToolTip="PNG or BMP of isometric floors or 28-wide wall columns"/>
+                <Button Content="Import floors" Click="ImportFloorsClicked" Margin="8,0,0,0"
+                        ToolTip="Quantize diamonds into TILEA.BMP / TILEAS.BMP starting at the given tile index"/>
+                <Button Content="Import walls" Click="ImportWallsClicked" Margin="8,0,0,0"
+                        ToolTip="Write each 28-pixel column as stc#####.hpf into ia.dat"/>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Open a tilesheet, align the iso grid, then import floors or walls."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <Image x:Name="PreviewImage" Stretch="None"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                </ScrollViewer>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Layout" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="LayoutBox" SelectionChanged="OptionsChanged"/>
+                    <TextBlock Text="DAT" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <ComboBox x:Name="CatalogBox" DisplayMemberPath="DisplayName"/>
+                    <TextBlock Text="Atlas" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <ComboBox x:Name="AtlasBox">
+                        <ComboBoxItem Content="TILEA.BMP" IsSelected="True"/>
+                        <ComboBoxItem Content="TILEAS.BMP"/>
+                    </ComboBox>
+                    <TextBlock Text="Origin X / Y" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <DockPanel>
+                        <TextBox x:Name="OriginXBox" Width="80" Text="0" Margin="0,0,6,0" TextChanged="OptionsChanged"/>
+                        <TextBox x:Name="OriginYBox" Text="0" TextChanged="OptionsChanged"/>
+                    </DockPanel>
+                    <TextBlock Text="Columns / rows / wall height" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <DockPanel>
+                        <TextBox x:Name="ColsBox" Width="60" Text="0" Margin="0,0,6,0" TextChanged="OptionsChanged"/>
+                        <TextBox x:Name="RowsBox" Width="60" Text="0" Margin="0,0,6,0" TextChanged="OptionsChanged"/>
+                        <TextBox x:Name="WallHBox" Text="0"/>
+                    </DockPanel>
+                    <TextBlock Text="Start TILEA index (0-based)" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <TextBox x:Name="StartBox" Text="0"/>
+                    <TextBlock Text="First wall id" Foreground="#9AA0AE" Margin="0,12,0,4"/>
+                    <TextBox x:Name="WallIdBox" Text="1"/>
+                    <CheckBox x:Name="DitherBox" Content="Dither" Margin="0,12,0,0"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#9AA0AE" Margin="0,16,0,0"
+                               Text="Iso diamond uses 56×27 TILEA cells stepped 28×14. Packed grid is a row of those diamonds. Wall columns are 28 pixels wide."/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

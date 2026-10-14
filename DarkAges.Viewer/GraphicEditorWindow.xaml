@@ -1,0 +1,112 @@
+<Window x:Class="DarkAges.Viewer.GraphicEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DarkAges.Viewer"
+        Title="Graphic Editor"
+        Height="780" Width="1180"
+        MinHeight="520" MinWidth="900"
+        Background="#1B1D23">
+    <Grid>
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <TextBlock Text="Kind" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox x:Name="KindBox" Width="140" SelectionChanged="KindChanged"/>
+                <Button Content="Import PNG…" Click="ImportClicked" Margin="12,0,0,0"
+                        ToolTip="Replace the current frame with a PNG or BMP"/>
+                <Button Content="Replace font…" Click="ReplaceFontClicked" Margin="8,0,0,0"
+                        ToolTip="Rasterize a TTF/OTF into this .fnt or .lft at the original DA cell size (8×12 English, 16×12 Korean, 12×12 LFT), or swap in another .fnt/.lft"/>
+                <Button Content="Import as new…" Click="ImportNewClicked" Margin="8,0,0,0"
+                        ToolTip="Quantize a PNG into a new EPF/MPF/HPF/EFA/SPF or TILEA/HPF tile and insert it"/>
+                <Button Content="Remap palette…" Click="RemapClicked" Margin="8,0,0,0"
+                        ToolTip="Re-index this graphic onto another palette, keeping dye slots 96–101"/>
+                <Button Content="New file" Click="NewClicked" Margin="8,0,0,0"
+                        ToolTip="Insert a blank floor, wall, effect, UI sheet, or portrait"/>
+                <Button Content="Save to DAT" Click="SaveClicked" Margin="8,0,0,0"
+                        ToolTip="Write this TILEA / HPF / EPF / SPF / EFA / RGBA / FNT / LFT back into the DAT"/>
+                <Button Content="Export ▾" Click="OpenButtonMenu" Margin="8,0,0,0"
+                        ToolTip="Write the graphic list as JSON, CSV, or SQL">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <TextBlock x:Name="CategoryLabel" Text="Category" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="16,0,8,0"/>
+                <ComboBox x:Name="CategoryBox" Width="200" SelectionChanged="CategoryChanged"/>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Effects, UI icons, floors, walls, and portraits."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="FilterChanged"/>
+                <DockPanel x:Name="GalleryPager" DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Left" Content="◀" Width="32" Click="GalleryPrevClicked"/>
+                    <Button DockPanel.Dock="Right" Content="▶" Width="32" Click="GalleryNextClicked"/>
+                    <TextBlock x:Name="GalleryPageLabel" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#9AA0AE"/>
+                </DockPanel>
+                <ScrollViewer x:Name="GalleryScroller" DockPanel.Dock="Top" Height="280"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8">
+                    <ItemsControl x:Name="TileGallery">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="76" Height="72" Margin="2" Background="#252830" BorderBrush="#3A3F4B"
+                                        BorderThickness="1" Cursor="Hand" ToolTip="{Binding Label}"
+                                        MouseLeftButtonDown="GalleryTileClicked">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Bottom" Text="{Binding Label}" Foreground="#9AA0AE"
+                                                   FontSize="10" TextTrimming="CharacterEllipsis" Margin="2,0,2,2"/>
+                                        <Image Source="{Binding Image}" Stretch="Uniform" Margin="4"
+                                               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <ListBox x:Name="FileList" DisplayMemberPath="Label" Background="#12141A"
+                         BorderBrush="#3A3F4B" SelectionChanged="FileSelected"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.CanContentScroll="True"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="2" Margin="8">
+                <WrapPanel x:Name="EffectBar" DockPanel.Dock="Top" Margin="0,0,0,8" Visibility="Collapsed">
+                    <TextBlock Text="Blend" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="BlendBox" Width="150" SelectionChanged="EffectSettingsChanged"/>
+                    <TextBlock Text="Origin" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="OriginXBox" Width="56" TextChanged="EffectSettingsChanged"/>
+                    <TextBox x:Name="OriginYBox" Width="56" Margin="6,0,0,0" TextChanged="EffectSettingsChanged"/>
+                </WrapPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                    <TextBlock x:Name="FrameLabel" DockPanel.Dock="Left" Text="Frame 0" Foreground="#9AA0AE"
+                               VerticalAlignment="Center" Width="80"/>
+                    <Slider x:Name="FrameSlider" Minimum="0" Maximum="0" TickFrequency="1" IsSnapToTickEnabled="True"
+                            ValueChanged="FrameChanged"/>
+                </DockPanel>
+                <Border Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1">
+                    <local:PixelPaintControl x:Name="Paint"/>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+    <local:BusyOverlay x:Name="BusyHost"/>
+    </Grid>
+</Window>

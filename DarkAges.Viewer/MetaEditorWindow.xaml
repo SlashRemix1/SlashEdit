@@ -1,0 +1,50 @@
+<Window x:Class="DarkAges.Viewer.MetaEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Metafile Editor"
+        Height="780" Width="1200"
+        MinHeight="520" MinWidth="900"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Add node" Click="AddNodeClicked"
+                        ToolTip="Append a blank row (name + fields)"/>
+                <Button Content="Remove node" Click="RemoveNodeClicked" Margin="8,0,0,0"/>
+                <Button Content="Save to DAT / folder" Click="SaveClicked" Margin="8,0,0,0"
+                        ToolTip="Write the zlib metafile back into metadata.dat or the metadata folder"/>
+                <Button Content="Export ▾" Click="OpenButtonMenu" Margin="8,0,0,0"
+                        ToolTip="Write this metafile table as JSON, CSV, or SQL">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="ItemInfo, SMonster, TMap warps, NationDesc, and other zlib metafiles."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="FilterChanged"/>
+                <ListBox x:Name="FileList" DisplayMemberPath="Label" Background="#12141A"
+                         BorderBrush="#3A3F4B" SelectionChanged="FileSelected"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <DataGrid x:Name="NodeGrid" Grid.Column="2" Margin="8"
+                      AutoGenerateColumns="True" CanUserAddRows="False"
+                      HeadersVisibility="Column"/>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -1,0 +1,36 @@
+<UserControl x:Class="DarkAges.Viewer.BusyOverlay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Visibility="Collapsed"
+             Background="#99000000"
+             IsHitTestVisible="True">
+    <UserControl.Resources>
+        <Storyboard x:Key="Spin" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="SpinRotate" Storyboard.TargetProperty="Angle"
+                             From="0" To="360" Duration="0:0:0.85"/>
+        </Storyboard>
+    </UserControl.Resources>
+    <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+            Background="#F2252830" BorderBrush="#6EA8FE" BorderThickness="1"
+            CornerRadius="8" Padding="28,22" MinWidth="300">
+        <StackPanel>
+            <Grid Width="40" Height="40" HorizontalAlignment="Center" Margin="0,0,0,14"
+                  Background="Transparent">
+                <Ellipse Stroke="#3A3F4B" StrokeThickness="4"/>
+                <Path Stroke="#6EA8FE" StrokeThickness="4"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M 20,4 A 16,16 0 1 1 4,20">
+                    <Path.RenderTransform>
+                        <RotateTransform x:Name="SpinRotate" CenterX="20" CenterY="20"/>
+                    </Path.RenderTransform>
+                </Path>
+            </Grid>
+            <ProgressBar x:Name="Bar" Height="8" Width="280" Minimum="0" Maximum="1"
+                         IsIndeterminate="True" Foreground="#6EA8FE" Background="#3A3F4B"
+                         BorderThickness="0"/>
+            <TextBlock x:Name="MessageText" Margin="0,12,0,0" Foreground="#F2F0ED"
+                       FontSize="13" TextAlignment="Center" TextWrapping="Wrap"
+                       Text="Working…"/>
+        </StackPanel>
+    </Border>
+</UserControl>

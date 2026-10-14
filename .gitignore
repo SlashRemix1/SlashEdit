@@ -1,0 +1,41 @@
+bin/
+obj/
+_agent_out/
+_agent_out /
+_mapeditor_src/
+_tmp_strings.ps1
+DarkAges.Formats.Tests/
+.vs/
+.idea/
+*_wpftmp.csproj
+*.user
+*.suo
+*.userosscache
+*.DotSettings.user
+Directory.Build.local.props
+TestResults/
+*.coverage
+*.coveragexml
+*.nupkg
+*.snupkg
+artifacts/
+Thumbs.db
+Desktop.ini
+
+# Unity export stays on this machine; clones build without it.
+DarkAges.Viewer/UnityExportWindow.xaml
+DarkAges.Viewer/UnityExportWindow.xaml.cs
+DarkAges.Viewer/Export/
+
+# Game data is never part of this repo. Browse a local client in the app.
+*.dat
+*.map
+*.lrar
+*.datf
+*.bik
+*.mp3
+*.wav
+areas/
+**/areas/
+warps/
+**/Warps/

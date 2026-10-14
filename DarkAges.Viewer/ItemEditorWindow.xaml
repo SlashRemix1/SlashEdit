@@ -1,0 +1,107 @@
+<Window x:Class="DarkAges.Viewer.ItemEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DarkAges.Viewer"
+        Title="Item Editor"
+        Height="780" Width="1180"
+        MinHeight="560" MinWidth="900"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="New item" Click="NewClicked"
+                        ToolTip="Create a new item id and blank (or copied) sprite"/>
+                <Button Content="Import sprite…" Click="ImportSpriteClicked"
+                        ToolTip="Replace this item's icon with a PNG or BMP"/>
+                <Button Content="Save EPF…" Click="SaveEpfClicked"
+                        ToolTip="Write the item sheet (item###.epf) with this sprite patched in"/>
+                <Button Content="Save to DAT" Click="SaveToDatClicked"
+                        ToolTip="Replace or insert this item###.epf in legend.dat without unpacking"/>
+                <Button Content="Export ▾" Click="OpenButtonMenu" Margin="12,0,0,0">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export pack…" Click="ExportPackClicked"
+                                      ToolTip="Write JSON info, PNG, and an EPF you can pack into legend.dat"/>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Select an item, or create a new one."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="Items (graphic id)" Foreground="#9AA0AE" Margin="0,0,0,4"
+                           ToolTip="item001.epf frame 0 is id 1. Each sheet is 266 slots: id = (file-1)×266+frame+1. ItemInfo names are the F1 book, not this index."/>
+                <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="FilterChanged"/>
+                <ListBox x:Name="ItemList" DisplayMemberPath="ListLabel" Background="#12141A"
+                         BorderBrush="#3A3F4B" SelectionChanged="ItemSelected"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.CanContentScroll="True"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <DockPanel Margin="8">
+                    <Border DockPanel.Dock="Top" Height="380" Background="#12141A" BorderBrush="#3A3F4B"
+                            BorderThickness="1" Margin="0,0,0,12">
+                        <local:PixelPaintControl x:Name="Paint"/>
+                    </Border>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Item id" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="IdBox" Grid.Column="1" Margin="0,0,12,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Column="2" Text="Name" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="NameBox" Grid.Column="3" Margin="0,0,0,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Row="1" Text="Level" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="LevelBox" Grid.Row="1" Grid.Column="1" Margin="0,0,12,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="Class" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ClassBox" Grid.Row="1" Grid.Column="3" Margin="0,0,0,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Row="2" Text="Weight" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="WeightBox" Grid.Row="2" Grid.Column="1" Margin="0,0,12,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="Category" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="CategoryBox" Grid.Row="2" Grid.Column="3" Margin="0,0,0,8" TextChanged="FieldChanged"/>
+                        <TextBlock Grid.Row="3" Text="Sprite file" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="FileBox" Grid.Row="3" Grid.Column="1" Margin="0,0,12,8" IsReadOnly="True"/>
+                        <TextBlock Grid.Row="3" Grid.Column="2" Text="Frame" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="FrameBox" Grid.Row="3" Grid.Column="3" Margin="0,0,0,8" IsReadOnly="True"/>
+                        <TextBlock Grid.Row="4" Text="Palette" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="PaletteBox" Grid.Row="4" Grid.Column="1" Margin="0,0,12,8" IsReadOnly="True"/>
+                        <TextBlock Grid.Row="4" Grid.Column="2" Text="Source" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBox x:Name="SourceBox" Grid.Row="4" Grid.Column="3" Margin="0,0,0,8" IsReadOnly="True"/>
+                        <TextBlock Grid.Row="5" Grid.ColumnSpan="4" Text="Description" Foreground="#9AA0AE" Margin="0,4,0,4"/>
+                        <TextBox x:Name="DescriptionBox" Grid.Row="6" Grid.ColumnSpan="4" MinHeight="72"
+                                 TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                 TextChanged="FieldChanged"/>
+                    </Grid>
+                </DockPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

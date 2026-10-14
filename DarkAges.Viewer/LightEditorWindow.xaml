@@ -1,0 +1,98 @@
+<Window x:Class="DarkAges.Viewer.LightEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Light Metafile"
+        Height="780" Width="1180"
+        MinHeight="520" MinWidth="900"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="New type" Click="AddTypeClicked"
+                        ToolTip="Add a light type (Default, BloodMoon, …) with 12 hourly slots"/>
+                <Button Content="Remove type" Click="RemoveTypeClicked" Margin="8,0,0,0"/>
+                <Button Content="Add map" Click="AddMapClicked" Margin="12,0,0,0"
+                        ToolTip="Assign a map id to the selected light type"/>
+                <Button Content="Remove map" Click="RemoveMapClicked" Margin="8,0,0,0"/>
+                <Button Content="Save to DAT" Click="SaveClicked" Margin="12,0,0,0"
+                        ToolTip="Write the Light zlib metafile back into metadata.dat or the metadata folder"/>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText"
+                           Text="7.xx lighting is this metafile (map id → type, 12 hourly ARGB slots). It is not an HEA overlay."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="Light types" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <ListBox x:Name="TypeList" DisplayMemberPath="Name" SelectionChanged="TypeSelected"
+                         Background="#12141A" BorderBrush="#3A3F4B"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="2" Margin="8">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <TextBlock Text="Type" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TypeNameBox" LostFocus="TypeNameCommitted" KeyDown="TypeNameKeyDown"/>
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Hourly slots (0–B). Alpha 0–32; 32 is fully transparent."
+                           Foreground="#9AA0AE" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <UniformGrid x:Name="SlotGrid" DockPanel.Dock="Top" Rows="3" Columns="4" Margin="0,0,0,8"/>
+                <Border DockPanel.Dock="Top" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1"
+                        Padding="8" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Slot" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SlotKeyLabel" Grid.Column="1" Foreground="#E8E6E3" VerticalAlignment="Center" Margin="8,0"/>
+                        <Button Grid.Column="2" Content="Pick color…" Click="PickColorClicked"/>
+                        <TextBlock Grid.Row="1" Text="Hours" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="8,6,0,0">
+                            <TextBox x:Name="StartHourBox" Width="48" LostFocus="SlotFieldCommitted"/>
+                            <TextBlock Text="–" Foreground="#9AA0AE" Margin="8,0" VerticalAlignment="Center"/>
+                            <TextBox x:Name="EndHourBox" Width="48" LostFocus="SlotFieldCommitted"/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="2" Text="ARGB" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <WrapPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="8,6,0,0">
+                            <TextBox x:Name="ABox" Width="44" LostFocus="SlotFieldCommitted" ToolTip="Alpha 0–32"/>
+                            <TextBox x:Name="RBox" Width="44" Margin="6,0,0,0" LostFocus="SlotFieldCommitted"/>
+                            <TextBox x:Name="GBox" Width="44" Margin="6,0,0,0" LostFocus="SlotFieldCommitted"/>
+                            <TextBox x:Name="BBox" Width="44" Margin="6,0,0,0" LostFocus="SlotFieldCommitted"/>
+                        </WrapPanel>
+                        <Border x:Name="SlotSwatch" Grid.Row="3" Grid.ColumnSpan="3" Height="28" Margin="0,10,0,0"
+                                BorderBrush="#3A3F4B" BorderThickness="1"/>
+                    </Grid>
+                </Border>
+                <TextBlock DockPanel.Dock="Top" Text="Day cycle" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <UniformGrid x:Name="CycleBar" Rows="1" Columns="12" Height="22"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="3" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="4" Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="Maps using this type" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Content="Assign" Width="64" Click="AddMapClicked"/>
+                    <TextBox x:Name="MapIdBox" ToolTip="Map id to assign to the selected type"/>
+                </DockPanel>
+                <ListBox x:Name="MapList" DisplayMemberPath="Label" Background="#12141A" BorderBrush="#3A3F4B"/>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

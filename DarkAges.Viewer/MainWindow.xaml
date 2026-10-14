@@ -1,0 +1,443 @@
+<Window x:Class="DarkAges.Viewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DarkAges.Viewer"
+        Title="Dark Ages DAT Viewer"
+        Height="820" Width="1280"
+        MinHeight="600" MinWidth="960"
+        Background="#1B1D23">
+    <Grid>
+    <DockPanel Background="#1B1D23">
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="10" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Client" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#9AA0AE"/>
+                <ComboBox x:Name="ClientBox" Grid.Column="1" DisplayMemberPath="Name"
+                          SelectionChanged="ClientChanged"
+                          ToolTip="Load one client version at a time so tilesets, palettes, and maps stay with that folder."/>
+                <Button x:Name="BrowseButton" Grid.Column="2" Content="Browse…" Click="BrowseClicked" Margin="8,0,0,0"
+                        ToolTip="Choose a full client folder (DAT, maps, metadata). Adds it as a named version without mixing other clients."/>
+                <Button x:Name="ReloadButton" Grid.Column="3" Content="Reload" Click="ReloadClicked"/>
+                <Button x:Name="EditorsButton" Grid.Column="4" Content="Editors ▾" Click="OpenButtonMenu"
+                        ToolTip="Map, item, monster, palette, meta, graphics, character, and music editors">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Maps">
+                                <MenuItem Header="Map Editor" Click="MapEditorClicked"
+                                          ToolTip="Paint floors, walls, and structure stamps. Save writes packed maps back into the DAT."/>
+                                <MenuItem Header="Second Map Editor" Click="SecondMapEditorClicked"
+                                          ToolTip="Keep a source map and a warp destination visible at once."/>
+                                <MenuItem Header="Warp Editor" Click="WarpEditorClicked"
+                                          ToolTip="View and edit every warp for this client."/>
+                                <MenuItem Header="Warp check" Click="WarpCheckClicked"/>
+                                <MenuItem Header="Walk flags (sotp)" Click="SotpEditorClicked"/>
+                                <MenuItem Header="Light metafile" Click="LightEditorClicked"
+                                          ToolTip="Edit 7.xx Light types and map assignments. Not an HEA overlay."/>
+                            </MenuItem>
+                            <MenuItem Header="Graphics">
+                                <MenuItem Header="Item Editor" Click="ItemEditorClicked"/>
+                                <MenuItem Header="Monster Editor" Click="MonsterEditorClicked"/>
+                                <MenuItem Header="Floor Editor" Click="FloorEditorClicked"/>
+                                <MenuItem Header="Wall Editor" Click="WallEditorClicked"/>
+                                <MenuItem Header="Effects Editor" Click="EffectsEditorClicked"/>
+                                <MenuItem Header="UI / Icons Editor" Click="UiEditorClicked"/>
+                                <MenuItem Header="Portrait Editor" Click="PortraitEditorClicked"/>
+                                <MenuItem Header="Character Assembler" Click="CharacterAssemblerClicked"/>
+                                <Separator/>
+                                <MenuItem Header="PNG converter…" Click="ConvertClicked"
+                                          ToolTip="Quantize a PNG into EPF, MPF, HPF, EFA, or SPF with a companion palette"/>
+                                <MenuItem Header="TILEA splicer…" Click="SplicerClicked"
+                                          ToolTip="Cut isometric floor diamonds or 28-wide wall columns from a sheet and import them"/>
+                            </MenuItem>
+                            <MenuItem Header="Data">
+                                <MenuItem Header="Palette Editor" Click="PaletteEditorClicked"/>
+                                <MenuItem Header="Metafile Editor" Click="MetaEditorClicked"/>
+                                <MenuItem Header="Light Metafile" Click="LightEditorClicked"
+                                          ToolTip="7.xx map lighting table (hours + ARGB). HEA overlay save stays blocked."/>
+                                <MenuItem Header="Music / Sound" Click="MusicBrowserClicked"/>
+                                <MenuItem Header="Change log" Click="ChangeLogClicked"/>
+                            </MenuItem>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Grid.Column="5" Content="DAT ▾" Click="OpenButtonMenu"
+                        ToolTip="Unpack a whole DAT to a folder, or rebuild a DAT from a folder. Editors also have Save to DAT for a single file.">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Unpack DAT…" Click="UnpackClicked"
+                                      ToolTip="Extract every file from a DAT into a folder. Use this for bulk edits, not for one new monster or item."/>
+                            <MenuItem Header="Repack folder to DAT…" Click="RepackClicked"
+                                      ToolTip="Rebuild an entire DAT from a folder. Editors' Save to DAT inserts or replaces one entry without this step."/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button Grid.Column="6" Content="More ▾" Click="OpenButtonMenu"
+                        ToolTip="Less common workspace actions">
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="MoreMenu">
+                            <MenuItem Header="Add client folder…" Click="AddFolderClicked"
+                                      ToolTip="Register another full client folder and switch to it. Versions stay separate."/>
+                            <MenuItem Header="FFmpeg for Bink…" Click="FfmpegPathClicked"
+                                      ToolTip="Point at ffmpeg.exe so .bik cinematics can be decoded. You can also put ffmpeg.exe next to the viewer or on PATH."/>
+                            <MenuItem Header="RAD Video Tools…" Click="RadVideoPathClicked"
+                                      ToolTip="Point at radvideo64.exe so MP4/AVI can be compressed to Bink 1. Existing .bik files can be replaced without this."/>
+                            <MenuItem Header="Import cinematic…" Click="ImportCinematicClicked"
+                                      ToolTip="Replace or add a .bik in a DAT. Common video files need RAD Video Tools; a ready .bik does not."/>
+                            <Separator x:Name="AboutSeparator"/>
+                            <MenuItem x:Name="AboutMenuItem" Header="About" Click="AboutClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </Grid>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Browse to a client folder to load its DATs, maps, and metadata."/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid Margin="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="260"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <ComboBox x:Name="WorkspaceBox" DockPanel.Dock="Top" Margin="0,0,0,8" SelectionChanged="WorkspaceChanged"/>
+                <TextBlock DockPanel.Dock="Top" Text="Search all archives" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,0,0,8"
+                         ToolTip="item 12, skill 4, floor 100, stc, filenames. Press Enter."
+                         KeyDown="SearchKeyDown"/>
+                <ListBox x:Name="SearchList" DockPanel.Dock="Top" MaxHeight="180" Margin="0,0,0,8" Visibility="Collapsed"
+                         DisplayMemberPath="Label" MouseDoubleClick="SearchResultActivated" KeyDown="SearchResultKeyDown"/>
+                <TextBlock x:Name="FavoriteHeader" DockPanel.Dock="Top" Text="Favorites" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <ListBox x:Name="FavoriteList" DockPanel.Dock="Top" MaxHeight="140" Margin="0,0,0,8"
+                         DisplayMemberPath="Label"
+                         MouseDoubleClick="FavoriteActivated"
+                         KeyDown="FavoriteKeyDown"
+                         ToolTip="Saved items for this client. Double-click to open. Delete removes.">
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Remove favorite" Click="RemoveFavoriteClicked"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                </ListBox>
+                <TextBox x:Name="ArchiveFilterBox" DockPanel.Dock="Top" Margin="0,0,0,8" TextChanged="FiltersChanged"/>
+                <TextBlock DockPanel.Dock="Top" Text="Archives" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <ListBox x:Name="ArchiveList" SelectionChanged="ArchiveSelected">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#6EA8FE" Margin="4,8,4,4"/>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="2">
+                                <TextBlock Text="{Binding Title}"/>
+                                <TextBlock Foreground="#9AA0AE" FontSize="11">
+                                    <Run Text="{Binding EntryCount, Mode=OneWay}"/> <Run Text="entries"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="2">
+                <TextBox x:Name="EntryFilterBox" DockPanel.Dock="Top" Margin="0,0,0,8" TextChanged="FiltersChanged"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <CheckBox x:Name="HidePalBox" Content="Hide .pal" IsChecked="True" DockPanel.Dock="Right"
+                              Foreground="#9AA0AE" VerticalAlignment="Center" Margin="8,0,0,0"
+                              Checked="FiltersChanged" Unchecked="FiltersChanged"/>
+                    <CheckBox x:Name="HideTableBox" Content="Hide .tbl/.txt" IsChecked="True" DockPanel.Dock="Right"
+                              Foreground="#9AA0AE" VerticalAlignment="Center"
+                              Checked="FiltersChanged" Unchecked="FiltersChanged"/>
+                    <TextBlock Text="Entries" Foreground="#9AA0AE" VerticalAlignment="Center"/>
+                </DockPanel>
+                <DockPanel x:Name="EntryPager" DockPanel.Dock="Bottom" Margin="0,6,0,0" Visibility="Collapsed">
+                    <Button DockPanel.Dock="Left" Content="◀" Width="32" Click="EntryPrevClicked"
+                            ToolTip="Previous page of this archive's file list"/>
+                    <Button DockPanel.Dock="Right" Content="▶" Width="32" Click="EntryNextClicked"
+                            ToolTip="Next page of this archive's file list"/>
+                    <ComboBox x:Name="EntryPageSizeBox" DockPanel.Dock="Right" Width="56" Margin="6,0,0,0"
+                              SelectionChanged="EntryPageSizeChanged"
+                              ToolTip="How many names to bind in the file list at once"/>
+                    <TextBlock x:Name="EntryPageLabel" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="#9AA0AE" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <ListBox x:Name="EntryList" SelectionChanged="EntrySelected" DisplayMemberPath="DisplayName"
+                         SelectionMode="Extended"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.CanContentScroll="True"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="3" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="4">
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button x:Name="PlayPauseButton" Content="Play / Pause" Click="PlayClicked"/>
+                    <Button x:Name="PrevFrameButton" Content="Prev" Click="PrevClicked"/>
+                    <Button x:Name="NextFrameButton" Content="Next" Click="NextClicked"/>
+                    <Button x:Name="PlaySoundButton" Content="Play sound" Click="PlaySoundClicked"/>
+                    <Button x:Name="FavoriteButton" Content="★ Favorite" Click="FavoriteClicked"
+                            ToolTip="Save this entry for this client and jump back to it later. Only for the single-item viewer."/>
+                    <Button x:Name="PreviewBackButton" Content="Back" Click="PreviewBackClicked" Margin="8,0,0,0" IsEnabled="False"
+                            ToolTip="Return to the previous map after a warp click"/>
+                    <CheckBox x:Name="WarpLabelsBox" Content="Warp labels" VerticalAlignment="Center" Margin="8,0,0,0"
+                              Foreground="#E8E6E3"
+                              ToolTip="Always show To: map x, y on warp tiles"
+                              Checked="PreviewWarpLabelsToggled" Unchecked="PreviewWarpLabelsToggled"/>
+                    <Button x:Name="PreviewActionsButton" Content="Actions ▾" Click="OpenButtonMenu">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="TileGridItem" Header="Tile grid" Click="TileGridClicked"/>
+                                <MenuItem x:Name="SheetItem" Header="Sheet" Click="SheetClicked"/>
+                                <MenuItem x:Name="ExportPngItem" Header="Export PNG" Click="ExportClicked"/>
+                                <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"
+                                          ToolTip="Write the current list, table, or map tiles as JSON"/>
+                                <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"
+                                          ToolTip="Write the current list, table, or map tiles as CSV"/>
+                                <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"
+                                          ToolTip="Write the current list, table, or map tiles as SQL INSERT statements"/>
+                                <MenuItem x:Name="ExtractItem" Header="Extract file" Click="ExtractClicked"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <CheckBox x:Name="GalleryBox" Content="Gallery (all entries)" VerticalAlignment="Center" Margin="8,0" Foreground="#E8E6E3" Checked="GalleryToggled" Unchecked="GalleryToggled"/>
+                    <CheckBox x:Name="ContactSheetBox" Content="Show all frames" IsChecked="True" VerticalAlignment="Center" Margin="8,0" Foreground="#E8E6E3" Checked="PreviewOptionsChanged" Unchecked="PreviewOptionsChanged"/>
+                    <CheckBox x:Name="AdditiveBox" Content="Additive palettes" VerticalAlignment="Center" Margin="8,0" Foreground="#E8E6E3" Checked="PreviewOptionsChanged" Unchecked="PreviewOptionsChanged"/>
+                </WrapPanel>
+                <Border Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1">
+                    <Grid x:Name="PreviewHost">
+                        <Border x:Name="AreaOverlay" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
+                                Background="#E2252830" BorderBrush="#6EA8FE" BorderThickness="1" CornerRadius="4"
+                                Padding="10,8" IsHitTestVisible="False" Panel.ZIndex="2" Visibility="Collapsed">
+                            <TextBlock x:Name="AreaOverlayText" Foreground="#F2F0ED" FontSize="13" TextWrapping="Wrap"
+                                       MaxWidth="360"/>
+                        </Border>
+                        <Popup x:Name="WarpHoverPopup" AllowsTransparency="True" Placement="Relative"
+                               IsHitTestVisible="False" Focusable="False" StaysOpen="True">
+                            <Border Background="#F2252830" BorderBrush="#6EA8FE" BorderThickness="1"
+                                    CornerRadius="4" Padding="8,4">
+                                <TextBlock x:Name="WarpHoverText" Foreground="#F2F0ED" FontSize="12"/>
+                            </Border>
+                        </Popup>
+                        <ScrollViewer x:Name="PreviewScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                      Cursor="Hand"
+                                      Focusable="False"
+                                      PreviewMouseLeftButtonDown="PreviewPanDown"
+                                      PreviewMouseMove="PreviewPanMove"
+                                      PreviewMouseLeftButtonUp="PreviewPanUp"
+                                      LostMouseCapture="PreviewPanLost"
+                                      MouseLeave="PreviewWarpLeave"
+                                      PreviewMouseWheel="PreviewWheelZoom">
+                            <Grid>
+                                <Grid x:Name="MapPreviewHost" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Grid.LayoutTransform>
+                                        <ScaleTransform x:Name="PreviewScale" ScaleX="1" ScaleY="1"/>
+                                    </Grid.LayoutTransform>
+                                    <Image x:Name="PreviewImage" Stretch="None" RenderOptions.BitmapScalingMode="NearestNeighbor"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Cursor="Hand"/>
+                                    <Canvas x:Name="PreviewWarpLabels" IsHitTestVisible="False"/>
+                                </Grid>
+                                <TextBox x:Name="HexBox" Visibility="Collapsed" IsReadOnly="True" FontFamily="Consolas" Background="Transparent" Foreground="#E8E6E3" BorderThickness="0" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"/>
+                                <TextBlock x:Name="ErrorText" Visibility="Collapsed" Foreground="#E88" Margin="16" TextWrapping="Wrap"/>
+                            </Grid>
+                        </ScrollViewer>
+                        <DataGrid x:Name="MetaGrid" Visibility="Collapsed"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  CanUserAddRows="False"
+                                  CanUserSortColumns="True"
+                                  SelectionMode="Single"
+                                  Background="#12141A"
+                                  Foreground="#E8E6E3"
+                                  BorderThickness="0"
+                                  RowBackground="#12141A"
+                                  AlternatingRowBackground="#1A1C22"
+                                  HorizontalGridLinesBrush="#3A3F4B"
+                                  VerticalGridLinesBrush="#3A3F4B"/>
+                        <DockPanel x:Name="GalleryPanel" Visibility="Collapsed">
+                            <Border DockPanel.Dock="Bottom" Background="#252830" Padding="8,6" BorderBrush="#3A3F4B" BorderThickness="0,1,0,0">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                                        <Button Content="« First" Click="GalleryFirstClicked" MinWidth="64"/>
+                                        <Button Content="‹ Prev" Click="GalleryPrevClicked" MinWidth="64"/>
+                                    </StackPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                        <Button Content="Next ›" Click="GalleryNextClicked" MinWidth="64"/>
+                                        <Button Content="Last »" Click="GalleryLastClicked" MinWidth="64"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBlock Text="Page" VerticalAlignment="Center" Foreground="#9AA0AE" Margin="0,0,6,0"/>
+                                        <TextBox x:Name="GalleryPageBox" Width="48" Text="1" KeyDown="GalleryPageKeyDown"/>
+                                        <TextBlock x:Name="GalleryPageLabel" VerticalAlignment="Center" Margin="8,0,12,0" Foreground="#E8E6E3"
+                                                   Text="of 1"/>
+                                        <TextBlock Text="Per page" VerticalAlignment="Center" Foreground="#9AA0AE" Margin="0,0,6,0"/>
+                                        <ComboBox x:Name="GalleryPageSizeBox" Width="64" VerticalAlignment="Center"
+                                                  SelectionChanged="GalleryPageSizeChanged"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <ListBox x:Name="GalleryHost" Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 VirtualizingPanel.ScrollUnit="Pixel">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                    <Setter Property="Focusable" Value="False"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <ItemsControl ItemsSource="{Binding Items}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="{Binding CellWidth}" Height="{Binding CellHeight}" Margin="4" Background="#1B1D23" Cursor="Hand"
+                                                        BorderBrush="#3A3F4B" BorderThickness="1"
+                                                        MouseLeftButtonUp="GalleryCellClicked"
+                                                        MouseEnter="GalleryCellHovered">
+                                                    <Grid>
+                                                        <Image Source="{Binding Image}" Stretch="Uniform"
+                                                               RenderOptions.BitmapScalingMode="NearestNeighbor"
+                                                               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                               Margin="4,4,4,18"/>
+                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Bottom"
+                                                                   Background="#CC12141A" Foreground="#E8E6E3"
+                                                                   FontSize="10" Padding="3,2" TextAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding ShowCaption}" Value="True">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Grid>
+                </Border>
+            </DockPanel>
+            <GridSplitter Grid.Column="5" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="6">
+                <GroupBox Header="Preview" DockPanel.Dock="Top">
+                    <StackPanel>
+                        <StackPanel x:Name="PalettePanel">
+                            <TextBlock Text="Palette" FontSize="11" Foreground="#9AA0AE"/>
+                            <ComboBox x:Name="PaletteBox" Margin="0,4,0,8" SelectionChanged="PreviewOptionsChanged"/>
+                            <TextBlock x:Name="ColorVariantLabel" Text="Color variants (palette swap)" FontSize="11"
+                                       Foreground="#9AA0AE" Visibility="Collapsed"
+                                       ToolTip="Same MPF pixels, each mns*.pal in this DAT. ★ is the palette stored in the sprite. Click a swatch to apply it."/>
+                            <ScrollViewer x:Name="ColorVariantScroller" MaxHeight="220" Visibility="Collapsed"
+                                          VerticalScrollBarVisibility="Auto" Margin="0,4,0,8">
+                                <ItemsControl x:Name="ColorVariantHost">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Width="64" Height="78" Margin="2" Background="#12141A"
+                                                    BorderBrush="#3A3F4B" BorderThickness="1" Cursor="Hand"
+                                                    MouseLeftButtonDown="ColorVariantClicked" Tag="{Binding PaletteName}"
+                                                    ToolTip="{Binding Caption}">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding Caption}"
+                                                               Foreground="#9AA0AE" FontSize="9" TextAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" Margin="2,0,2,2"/>
+                                                    <Image Source="{Binding Image}" Stretch="Uniform" Margin="2"
+                                                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                                </DockPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+                        <StackPanel x:Name="TilesetPanel">
+                            <TextBlock Text="Map tileset" FontSize="11" Foreground="#9AA0AE"/>
+                            <ComboBox x:Name="TilesetBox" Margin="0,4,0,8" SelectionChanged="PreviewOptionsChanged"/>
+                            <TextBlock Text="Floor atlas offset" FontSize="11" Foreground="#9AA0AE"
+                                       ToolTip="Add this many TILEA slots to every map floor id. 0 is the file start (shared prefix). Positive values use later tiles (STONED extras)."/>
+                            <DockPanel Margin="0,4,0,8">
+                                <Button DockPanel.Dock="Right" Content="Skip shared" Padding="8,2" Margin="6,0,0,0"
+                                        Click="SkipSharedFloorsClicked"
+                                        ToolTip="Set offset to the smaller TILEA size so this tileset uses tiles past the shared prefix."/>
+                                <TextBox x:Name="FloorOffsetBox" Text="0" LostFocus="PreviewOptionsChanged"
+                                         KeyDown="FloorOffsetKeyDown"/>
+                            </DockPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="MotionPanel">
+                            <TextBlock Text="Motion group" FontSize="11" Foreground="#9AA0AE"/>
+                            <ComboBox x:Name="MotionBox" Margin="0,4,0,8" SelectionChanged="PreviewOptionsChanged"/>
+                        </StackPanel>
+                        <StackPanel x:Name="FramePanel">
+                            <TextBlock x:Name="FrameLabel" Text="Frame 1 / 1" FontSize="11" Foreground="#9AA0AE"/>
+                            <Slider x:Name="FrameSlider" Minimum="0" Maximum="0" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,4,0,8" ValueChanged="FrameSliderChanged"/>
+                        </StackPanel>
+                        <StackPanel x:Name="ZoomPanel">
+                            <TextBlock Text="Zoom (mouse wheel)" FontSize="11" Foreground="#9AA0AE"/>
+                            <ComboBox x:Name="ZoomBox" Margin="0,4,0,8" SelectionChanged="PreviewOptionsChanged"
+                                      ToolTip="Scale the preview without re-rendering. Wheel over the image also zooms."/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox x:Name="OverlayGroup" Header="Khan overlays" DockPanel.Dock="Top">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Check extra EPFs to composite" FontSize="11" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                        <ListBox x:Name="OverlayList" Height="140" SelectionMode="Multiple"
+                                 SelectionChanged="PreviewOptionsChanged" DisplayMemberPath="Name"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"/>
+                    </DockPanel>
+                </GroupBox>
+                <GroupBox Header="Metadata">
+                    <TextBox x:Name="MetaBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" BorderThickness="0" Foreground="#E8E6E3" FontFamily="Consolas"/>
+                </GroupBox>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+    <local:BusyOverlay x:Name="BusyHost"/>
+    </Grid>
+</Window>

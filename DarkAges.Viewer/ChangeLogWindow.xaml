@@ -1,0 +1,43 @@
+<Window x:Class="DarkAges.Viewer.ChangeLogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Change log"
+        Height="560" Width="820"
+        MinHeight="360" MinWidth="560"
+        Background="#1B1D23">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Refresh" Click="RefreshClicked"/>
+                <Button Content="Open folder" Click="FolderClicked" Margin="8,0,0,0"
+                        ToolTip="Open the per-client changelog and snapshot folder"/>
+                <Button Content="Export ▾" Click="OpenButtonMenu" Margin="8,0,0,0"
+                        ToolTip="Write the change log as JSON, CSV, or SQL">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"/>
+                            <MenuItem Header="Export SQL…" Tag="sql" Click="ExportDataClicked"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Edits for this client."/>
+            </StatusBarItem>
+        </StatusBar>
+        <DataGrid x:Name="LogGrid" Margin="8"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="When" Binding="{Binding When}" Width="160"/>
+                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="90"/>
+                <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
