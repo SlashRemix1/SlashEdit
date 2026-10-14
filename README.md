@@ -71,3 +71,7 @@ Favorites (★) are saved per client. Warp labels and Back apply to map preview.
 - `DarkAges.Formats` — archive and graphic formats
 
 Local-only pieces are gitignored and will not be on GitHub: unit tests, Unity export, map/area dumps, and the old map-editor source dump.
+
+## License
+
+This project's source code is MIT. See [LICENSE](LICENSE). Dark Ages game files and trademarks remain their owners' property and are not included in this repository.
