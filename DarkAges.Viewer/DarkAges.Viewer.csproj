@@ -15,6 +15,7 @@
     <Authors>SlashRemix</Authors>
     <Company>SlashRemix</Company>
     <Product>SlashEdit</Product>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\UnityExportWindow.xaml')">
     <DefineConstants>$(DefineConstants);LOCAL_UNITY</DefineConstants>
@@ -22,5 +23,9 @@
   <ItemGroup>
     <ProjectReference Include="..\DarkAges.Formats\DarkAges.Formats.csproj" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Remove="Assets\app.ico" />
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 </Project>

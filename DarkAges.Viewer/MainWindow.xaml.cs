@@ -87,6 +87,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = AppInfo.Name;
+        UpdateCaptionButtons();
         _workspace = new AssetWorkspace(_settings);
         WorkspaceBox.ItemsSource = new[]
         {
@@ -189,6 +190,31 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "Browse to a client folder to load its DATs, maps, and metadata.";
         }
+    }
+
+    private void MinimizeClicked(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void MaxRestoreClicked(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void WindowStateChanged(object sender, EventArgs e)
+    {
+        RootChrome.Margin = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(0);
+        UpdateCaptionButtons();
+    }
+
+    private void UpdateCaptionButtons()
+    {
+        if (MaxRestoreButton is null)
+        {
+            return;
+        }
+
+        bool maximized = WindowState == WindowState.Maximized;
+        MaxRestoreButton.Content = maximized ? "\uE923" : "\uE922";
+        MaxRestoreButton.ToolTip = maximized ? "Restore" : "Maximize";
     }
 
     private void BrowseClicked(object sender, RoutedEventArgs e)
