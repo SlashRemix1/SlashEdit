@@ -7,6 +7,7 @@ using DarkAges.Formats.Imaging;
 using DarkAges.Viewer.Imaging;
 using DarkAges.Viewer.Maps;
 using DarkAges.Formats.Maps;
+using DarkAges.Formats.Unity;
 
 namespace DarkAges.Viewer.Preview;
 
@@ -31,6 +32,17 @@ public static class PreviewBuilder
         try
         {
             string ext = entry.Extension.ToLowerInvariant();
+            if (archive is UnityBundleArchive unity)
+            {
+                return FromUnity(unity, entry, frameIndex);
+            }
+
+            byte[]? tableProbe = ext == ".bin" ? entry.ReadAllBytes() : null;
+            if (tableProbe is not null && LodTableFile.LooksLike(tableProbe))
+            {
+                return FromLodTable(entry, tableProbe);
+            }
+
             if (ext == ".map")
             {
                 return FromMap(entry, mapTilesets, tilesetName, mapHint, tileset, floorOffset, paletteOverride, warps);
@@ -107,6 +119,65 @@ public static class PreviewBuilder
         ".map" => FromMap(entry, null, null, null, null, 0),
         _ => MetaFile.LooksLike(entry) ? FromMeta(entry, archive.SourcePath) : FromUnknown(entry)
     };
+
+    private static PreviewResult FromUnity(UnityBundleArchive archive, ArchiveEntry entry, int frameIndex)
+    {
+        UnityObjectPreview preview = archive.Preview(entry, frameIndex, animateSequence: true);
+        if (!string.IsNullOrWhiteSpace(preview.Error) && preview.Pixels is null && preview.Audio is null && preview.Text is null)
+        {
+            return new PreviewResult { Error = preview.Error, Metadata = preview.Metadata };
+        }
+
+        if (preview.Pixels is not null)
+        {
+            return new PreviewResult
+            {
+                Image = WpfImages.ToBitmap(preview.Pixels),
+                Pixels = preview.Pixels,
+                Metadata = preview.Metadata,
+                FrameCount = Math.Max(1, preview.FrameCount),
+                CanAnimate = preview.CanAnimate,
+                AutoPlay = preview.AutoPlay,
+                FrameDelayMs = preview.CanAnimate ? 90 : 0,
+                Frames = preview.Frames
+            };
+        }
+
+        if (preview.Audio is not null)
+        {
+            return new PreviewResult
+            {
+                Audio = preview.Audio,
+                AudioName = entry.Name,
+                Metadata = preview.Metadata,
+                FrameCount = 1
+            };
+        }
+
+        if (!string.IsNullOrEmpty(preview.Text))
+        {
+            return new PreviewResult
+            {
+                Hex = preview.Text,
+                Metadata = preview.Metadata,
+                FrameCount = 1
+            };
+        }
+
+        return new PreviewResult { Metadata = preview.Metadata, Hex = preview.Error ?? "", FrameCount = 1 };
+    }
+
+    private static PreviewResult FromLodTable(ArchiveEntry entry, byte[] data)
+    {
+        LodTableFile table = LodTableFile.Load(data);
+        return new PreviewResult
+        {
+            TableHeaders = table.Headers,
+            TableRows = table.Rows,
+            Metadata = $"{entry.DisplayName}\n{table.Notes}\nXOR 0x55 LoD R table",
+            FrameCount = 1
+        };
+    }
 
     public static PreviewResult FromMeta(ArchiveEntry entry, string? encodingHint = null)
     {
@@ -322,7 +393,6 @@ public static class PreviewBuilder
             int columns = iconSheet ? 19 : Math.Min(8, Math.Max(1, epf.Frames.Count));
             int rows = Math.Max(1, (int)Math.Ceiling(epf.Frames.Count / (double)columns));
             var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-            canvas.Clear(28, 28, 32, 255);
             PaletteTable? table = LoadTable(archive, "itempal.tbl");
             int fileNumber = ParseDigits(entry.Name);
             for (int i = 0; i < epf.Frames.Count; i++)
@@ -332,7 +402,7 @@ public static class PreviewBuilder
                 Palette framePal = palette;
                 if (isItem && table is not null && fileNumber > 0)
                 {
-                    int tileNumber = (fileNumber - 1) * 266 + i + 1;
+                    int tileNumber = LegendItems.ItemId(archive, fileNumber, i);
                     int palNum = table.GetPaletteNumber(tileNumber);
                     framePal = PaletteLocator.FindNumbered(archive, "item", palNum) ?? palette;
                 }
@@ -383,7 +453,6 @@ public static class PreviewBuilder
         int columns = Math.Min(8, Math.Max(1, range.Count));
         int rows = Math.Max(1, (int)Math.Ceiling(range.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-        canvas.Clear(28, 28, 32, 255);
         for (int i = 0; i < range.Count; i++)
         {
             MpfFrame frame = mpf.Frames[range[i]];
@@ -460,7 +529,6 @@ public static class PreviewBuilder
         int columns = images.Count <= 8 ? images.Count : Math.Min(8, images.Count);
         int rows = Math.Max(1, (int)Math.Ceiling(images.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-        canvas.Clear(28, 28, 32, 255);
         for (int i = 0; i < images.Count; i++)
         {
             int col = i % columns;
@@ -502,7 +570,6 @@ public static class PreviewBuilder
         int columns = Math.Min(8, spf.Frames.Count);
         int rows = Math.Max(1, (int)Math.Ceiling(spf.Frames.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-        canvas.Clear(28, 28, 32, 255);
         for (int i = 0; i < spf.Frames.Count; i++)
         {
             PixelBuffer img = spf.Frames[i].Render(spf, palette);
@@ -533,7 +600,6 @@ public static class PreviewBuilder
         int columns = Math.Min(8, efa.Frames.Count);
         int rows = Math.Max(1, (int)Math.Ceiling(efa.Frames.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-        canvas.Clear(28, 28, 32, 255);
         for (int i = 0; i < efa.Frames.Count; i++)
         {
             PixelBuffer img = efa.Frames[i].Render();
@@ -558,7 +624,6 @@ public static class PreviewBuilder
         int columns = Math.Min(12, Math.Max(1, entries.Count));
         int rows = Math.Max(1, (int)Math.Ceiling(entries.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cell, rows * cell);
-        canvas.Clear(28, 28, 32, 255);
         int shown = 0;
         for (int i = 0; i < entries.Count; i++)
         {
@@ -763,7 +828,6 @@ public static class PreviewBuilder
         int columns = 19;
         int rows = (int)Math.Ceiling(shown / (double)columns);
         var canvas = new PixelBuffer(columns * FloorTiles.TileWidth, rows * FloorTiles.TileHeight);
-        canvas.Clear(28, 28, 32, 255);
         bool snowSheet = name.Equals("TILEAS.BMP", StringComparison.OrdinalIgnoreCase);
         Palette? snowPal = snowSheet ? PaletteLocator.ForSnowFloor(archive) : null;
         for (int i = 0; i < shown; i++)
@@ -809,19 +873,7 @@ public static class PreviewBuilder
         PixelBuffer img = frame.Render(efa.Blend);
         short ox = frame.Header.OriginX != 0 ? frame.Header.OriginX : EffectCenterTable.DefaultX;
         short oy = frame.Header.OriginY != 0 ? frame.Header.OriginY : EffectCenterTable.DefaultY;
-        int canvasW = Math.Max(img.Width + Math.Abs((int)ox), img.Width);
-        int canvasH = Math.Max(img.Height + Math.Abs((int)oy), img.Height);
-        var canvas = new PixelBuffer(canvasW, canvasH);
-        int dx = Math.Max(0, (int)ox);
-        int dy = Math.Max(0, (int)oy);
-        if (EfaBlendRules.AdditiveBlit(efa.Blend))
-        {
-            canvas.BlitAdd(img, dx, dy);
-        }
-        else
-        {
-            canvas.Blit(img, dx, dy);
-        }
+        PixelBuffer canvas = EffectStage.Compose(img, ox, oy, EfaBlendRules.AdditiveBlit(efa.Blend));
 
         return new PreviewResult
         {
@@ -829,9 +881,11 @@ public static class PreviewBuilder
             Image = WpfImages.Checkerboard(canvas.Width, canvas.Height, canvas),
             Metadata =
                 $"{entry.Name}\nEFA frame {index + 1}/{efa.Frames.Count}  {img.Width}x{img.Height}\n" +
-                $"blend {efa.Blend}  origin ({ox},{oy})",
+                $"blend {efa.Blend}  origin ({ox},{oy})\nDummy player at the effect origin. Play runs the whole effect.",
             FrameCount = efa.Frames.Count,
-            CanAnimate = efa.Frames.Count > 1
+            CanAnimate = efa.Frames.Count > 1,
+            AutoPlay = efa.Frames.Count > 1,
+            FrameDelayMs = 90
         };
     }
 
@@ -1252,6 +1306,7 @@ public static class PreviewBuilder
                 ".jpf" or ".jpg" or ".jpeg" or ".png" => EncodedImageFrames(entry),
                 ".rgba" => RgbaFrames(entry, maxFrames),
                 ".bik" => ExtractBink(entry, maxFrames),
+                ".sprite" or ".texture2d" or ".cubemap" or ".rendertexture" => ExtractUnity(archive, entry),
                 _ => []
             };
         }
@@ -1259,6 +1314,17 @@ public static class PreviewBuilder
         {
             return [];
         }
+    }
+
+    private static List<PixelBuffer> ExtractUnity(IArchive archive, ArchiveEntry entry)
+    {
+        if (archive is not UnityBundleArchive unity)
+        {
+            return [];
+        }
+
+        UnityObjectPreview preview = unity.Preview(entry, 0, animateSequence: false);
+        return preview.Pixels is null ? [] : [preview.Pixels];
     }
 
     private static PreviewResult KhanSheet(IArchive archive, ArchiveEntry entry, Palette? palette, bool additive)
@@ -1274,7 +1340,6 @@ public static class PreviewBuilder
         int columns = Math.Min(8, Math.Max(1, frames.Count));
         int rows = Math.Max(1, (int)Math.Ceiling(frames.Count / (double)columns));
         var canvas = new PixelBuffer(columns * cellW, rows * cellH);
-        canvas.Clear(28, 28, 32, 255);
         for (int i = 0; i < frames.Count; i++)
         {
             int col = i % columns;
@@ -1759,7 +1824,7 @@ public static class PreviewBuilder
         }
 
         int fileNumber = ParseDigits(entry.Name);
-        int tileNumber = Math.Max(1, (fileNumber - 1) * 266 + frameIndex + 1);
+        int tileNumber = LegendItems.ItemId(archive, Math.Max(fileNumber, 1), frameIndex);
         int palNum = table.GetPaletteNumber(tileNumber);
         return PaletteLocator.FindNumbered(archive, "item", palNum) ?? fallback;
     }

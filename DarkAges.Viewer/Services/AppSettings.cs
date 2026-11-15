@@ -11,6 +11,7 @@ public sealed class AppSettings
     public string ActiveClient { get; set; } = "";
     public string FfmpegPath { get; set; } = "";
     public string RadVideoPath { get; set; } = "";
+    public int PlaybackFps { get; set; } = PlaybackSpeed.DefaultFps;
 
     private static string SettingsPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SlashEdit", "settings.json");

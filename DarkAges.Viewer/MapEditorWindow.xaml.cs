@@ -1171,7 +1171,14 @@ public partial class MapEditorWindow : Window
             int offset = FloorAtlasOffset();
             PixelBuffer buffer = square
                 ? _assets.RenderTabSquare(_map)
-                : _assets.Render(_map, snow, floorOffset: offset, tabMap: tabIso, warps: VisibleWarps(), arrivals: VisibleArrivals());
+                : _assets.Render(
+                    _map,
+                    snow,
+                    floorOffset: offset,
+                    transparentBackdrop: true,
+                    tabMap: tabIso,
+                    warps: VisibleWarps(),
+                    arrivals: VisibleArrivals());
             PngWriter.Write(buffer, dialog.FileName);
             StatusText.Text = $"Exported {dialog.FileName} ({buffer.Width}×{buffer.Height})";
         }

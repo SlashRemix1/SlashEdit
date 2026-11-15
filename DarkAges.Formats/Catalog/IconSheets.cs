@@ -5,19 +5,18 @@ namespace DarkAges.Formats.Catalog;
 
 public static class IconSheets
 {
-    public const int ItemTilesPerFile = 266;
-
     public static IEnumerable<ArchiveEntry> Expand(IEnumerable<ArchiveEntry> entries)
     {
         var list = entries.ToList();
+        Dictionary<string, IReadOnlyList<ArchiveEntry>> items = LegendItems.ExpandSheets(list);
         Dictionary<string, IReadOnlyList<ArchiveEntry>> skills = ExpandNumbered(list, "skill");
         Dictionary<string, IReadOnlyList<ArchiveEntry>> spells = ExpandNumbered(list, "spell");
 
         foreach (ArchiveEntry entry in list)
         {
-            if (LegendItems.IsItemSheet(entry))
+            if (items.TryGetValue(entry.Name, out IReadOnlyList<ArchiveEntry>? itemTiles))
             {
-                foreach (ArchiveEntry tile in LegendItems.ExpandSheet(entry))
+                foreach (ArchiveEntry tile in itemTiles)
                 {
                     yield return tile;
                 }

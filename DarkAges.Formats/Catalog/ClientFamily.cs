@@ -8,6 +8,7 @@ public enum ClientFamily
     ClassicNa,
     Fragments,
     LegendOfDarkness,
+    LegendOfDarknessR,
     Yuki,
     AoC
 }
@@ -36,6 +37,11 @@ public static class ClientFamilies
         if (Contains(text, "Legends_AoC", "Legends AoC", "legends-aoc"))
         {
             return ClientFamily.AoC;
+        }
+
+        if (Contains(text, "Legend of Darkness R", "Legend_of_Darkness_R", "LegendOfDarknessR"))
+        {
+            return ClientFamily.LegendOfDarknessR;
         }
 
         if (Contains(text, "Legend of Darkness", "Legend_of_Darkness", "LegendOfDarkness"))
@@ -75,6 +81,7 @@ public static class ClientFamilies
         ClientFamily.ClassicNa => "classic Dark Ages",
         ClientFamily.Fragments => "Fragments of Temuair",
         ClientFamily.LegendOfDarkness => "Legend of Darkness",
+        ClientFamily.LegendOfDarknessR => "Legend of Darkness R",
         ClientFamily.Yuki => "Yuki (JP)",
         ClientFamily.AoC => "Legends AoC",
         _ => "this client"

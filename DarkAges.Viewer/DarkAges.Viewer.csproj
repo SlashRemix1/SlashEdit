@@ -20,6 +20,9 @@
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\UnityExportWindow.xaml')">
     <DefineConstants>$(DefineConstants);LOCAL_UNITY</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\GodotExportWindow.xaml')">
+    <DefineConstants>$(DefineConstants);LOCAL_GODOT</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DarkAges.Formats\DarkAges.Formats.csproj" />
     <PackageReference Include="NAudio" Version="2.2.1" />

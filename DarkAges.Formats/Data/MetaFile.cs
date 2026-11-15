@@ -22,9 +22,10 @@ public sealed class MetaFile
         string stem = Path.GetFileNameWithoutExtension(name);
         return StartsWithAny(
             stem,
-            "iteminfo", "itemdesc", "nationdesc", "npcillust", "worldmap",
-            "skilldesc", "spelldesc", "metainf", "serverinfo", "eventdesc",
-            "tmap", "smonster", "light");
+            "iteminfo", "itemdesc", "itemhelp", "nationdesc", "npcillust", "npclocation",
+            "worldmap", "skilldesc", "skillspell", "spelldesc", "metainf", "serverinfo",
+            "eventdesc", "tmap", "smonster", "light", "charicinfo", "quest", "sclass",
+            "sevent", "sgui", "servers", "titles", "produces", "transforms");
     }
 
     public static bool IsMapTable(string name) =>

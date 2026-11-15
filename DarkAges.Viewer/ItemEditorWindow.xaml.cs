@@ -90,9 +90,19 @@ public partial class ItemEditorWindow : Window
                 });
             }
 
-            foreach (ArchiveEntry entry in archive.Entries.Where(LegendItems.IsItemSheet).OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            int nextId = 1;
+            foreach (ArchiveEntry entry in archive.Entries.Where(LegendItems.IsItemSheet).OrderBy(LegendItems.FileNumber).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
             {
-                int fileNumber = LegendItems.FileNumber(entry);
+                int frames;
+                try
+                {
+                    frames = EpfFile.PeekFrameCount(entry);
+                }
+                catch
+                {
+                    continue;
+                }
+
                 IReadOnlyList<EpfFrameHeader> headers;
                 try
                 {
@@ -100,17 +110,17 @@ public partial class ItemEditorWindow : Window
                 }
                 catch
                 {
-                    continue;
+                    headers = [];
                 }
 
-                for (int i = 0; i < headers.Count; i++)
+                for (int i = 0; i < frames; i++)
                 {
-                    if (headers[i].Width <= 0 || headers[i].Height <= 0)
+                    int id = nextId++;
+                    if (i >= headers.Count || headers[i].Width <= 0 || headers[i].Height <= 0)
                     {
                         continue;
                     }
 
-                    int id = LegendItems.ItemId(fileNumber, i);
                     ApplyMeta(id, out string name, out string level, out string cls, out string weight, out string category, out string description);
                     _items.Add(new ItemDraft
                     {
@@ -431,9 +441,7 @@ public partial class ItemEditorWindow : Window
         CatalogEntry? catalog = source?.Catalog ?? _catalogs.FirstOrDefault(c => c.Role == ArchiveRole.Items);
         bool rgba = source is not null && IsRgba(source)
             || (catalog is not null && LrarArchive.IsLrarPath(catalog.SourcePath));
-        int fileNumber = (nextId - 1) / LegendItems.TilesPerFile + 1;
-        int frame = rgba ? 0 : (nextId - 1) % LegendItems.TilesPerFile;
-        string fileName = rgba ? $"item_{nextId:D5}.rgba" : $"item{fileNumber:D3}.epf";
+        ResolveNewItemSlot(nextId, catalog, rgba, out int frame, out string fileName);
         var item = new ItemDraft
         {
             Id = nextId,
@@ -454,6 +462,58 @@ public partial class ItemEditorWindow : Window
         ItemList.SelectedItem = item;
         ItemList.ScrollIntoView(item);
         StatusText.Text = $"Created item {nextId} ({fileName} frame {frame}). Import a sprite and Export pack.";
+    }
+
+    private void ResolveNewItemSlot(int nextId, CatalogEntry? catalog, bool rgba, out int frame, out string fileName)
+    {
+        if (rgba)
+        {
+            frame = 0;
+            fileName = $"item_{nextId:D5}.rgba";
+            return;
+        }
+
+        if (catalog is not null && _cache is not null)
+        {
+            try
+            {
+                IArchive archive = _cache.Get(catalog);
+                int remaining = nextId;
+                ArchiveEntry? last = null;
+                foreach (ArchiveEntry sheet in archive.Entries
+                    .Where(LegendItems.IsItemSheet)
+                    .OrderBy(LegendItems.FileNumber)
+                    .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    last = sheet;
+                    int count = EpfFile.PeekFrameCount(sheet);
+                    if (remaining <= count)
+                    {
+                        frame = remaining - 1;
+                        fileName = sheet.Name;
+                        return;
+                    }
+
+                    remaining -= count;
+                }
+
+                if (last is not null)
+                {
+                    int count = EpfFile.PeekFrameCount(last);
+                    frame = count + remaining - 1;
+                    fileName = last.Name;
+                    return;
+                }
+            }
+            catch
+            {
+                // Fall back to Legend 266-slot pages only when the archive cannot be read.
+            }
+        }
+
+        int fileNumber = (nextId - 1) / LegendItems.TilesPerFile + 1;
+        frame = (nextId - 1) % LegendItems.TilesPerFile;
+        fileName = $"item{fileNumber:D3}.epf";
     }
 
     private PixelBuffer? CopyRendered(ItemDraft item)

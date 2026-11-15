@@ -22,9 +22,11 @@ artifacts/
 Thumbs.db
 Desktop.ini
 
-# Unity export stays on this machine; clones build without it.
+# Unity / Godot export stays on this machine; clones build without it.
 DarkAges.Viewer/UnityExportWindow.xaml
 DarkAges.Viewer/UnityExportWindow.xaml.cs
+DarkAges.Viewer/GodotExportWindow.xaml
+DarkAges.Viewer/GodotExportWindow.xaml.cs
 DarkAges.Viewer/Export/
 
 # Game data is never part of this repo. Browse a local client in the app.

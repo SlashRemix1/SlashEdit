@@ -1,19 +1,34 @@
 using DarkAges.Formats.Data;
+using DarkAges.Formats.Unity;
 
 namespace DarkAges.Formats.Catalog;
 
 public sealed class ArchiveCache : IDisposable
 {
+    private readonly object _gate = new();
     private readonly Dictionary<string, IArchive> _open = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IArchive> _raw = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool Contains(CatalogEntry entry)
+    {
+        lock (_gate)
+        {
+            return _open.ContainsKey(CacheKey(entry));
+        }
+    }
 
     public IArchive Get(CatalogEntry entry)
     {
         string key = CacheKey(entry);
-        if (_open.TryGetValue(key, out IArchive? archive))
+        lock (_gate)
         {
-            return archive;
+            if (_open.TryGetValue(key, out IArchive? cached))
+            {
+                return cached;
+            }
         }
+
+        IArchive archive;
 
         if (entry.IsFolder)
         {
@@ -23,13 +38,32 @@ public sealed class ArchiveCache : IDisposable
         {
             archive = LrarArchive.Open(entry.SourcePath, entry.Role);
         }
+        else if (UnityBundleArchive.LooksLike(entry.SourcePath))
+        {
+            archive = new UnityBundleArchive(entry.SourcePath);
+        }
         else
         {
             archive = FilteredArchive.WrapIfNeeded(GetRawDat(entry.SourcePath), entry.Role);
         }
 
-        _open[key] = archive;
-        return archive;
+        lock (_gate)
+        {
+            if (_open.TryGetValue(key, out IArchive? raced))
+            {
+                if (!ReferenceEquals(raced, archive)
+                    && archive is not FilteredArchive
+                    && !_raw.ContainsValue(archive))
+                {
+                    archive.Dispose();
+                }
+
+                return raced;
+            }
+
+            _open[key] = archive;
+            return archive;
+        }
     }
 
     public void Evict(string path)
@@ -44,31 +78,34 @@ public sealed class ArchiveCache : IDisposable
             full = path;
         }
 
-        var keys = _open
-            .Where(p => PathsEqual(p.Value.SourcePath, full))
-            .Select(p => p.Key)
-            .ToList();
-        foreach (string key in keys)
+        lock (_gate)
         {
-            if (_open.Remove(key, out IArchive? archive)
-                && archive is not FilteredArchive
-                && !_raw.ContainsValue(archive))
+            var keys = _open
+                .Where(p => PathsEqual(p.Value.SourcePath, full))
+                .Select(p => p.Key)
+                .ToList();
+            foreach (string key in keys)
             {
-                archive.Dispose();
-            }
-        }
-
-        if (_raw.Remove(full, out IArchive? raw))
-        {
-            raw.Dispose();
-        }
-        else
-        {
-            foreach (string rawKey in _raw.Keys.Where(k => PathsEqual(k, full)).ToList())
-            {
-                if (_raw.Remove(rawKey, out IArchive? extra))
+                if (_open.Remove(key, out IArchive? archive)
+                    && archive is not FilteredArchive
+                    && !_raw.ContainsValue(archive))
                 {
-                    extra.Dispose();
+                    archive.Dispose();
+                }
+            }
+
+            if (_raw.Remove(full, out IArchive? raw))
+            {
+                raw.Dispose();
+            }
+            else
+            {
+                foreach (string rawKey in _raw.Keys.Where(k => PathsEqual(k, full)).ToList())
+                {
+                    if (_raw.Remove(rawKey, out IArchive? extra))
+                    {
+                        extra.Dispose();
+                    }
                 }
             }
         }
@@ -88,36 +125,51 @@ public sealed class ArchiveCache : IDisposable
 
     public void Dispose()
     {
-        foreach (IArchive archive in _open.Values)
+        lock (_gate)
         {
-            if (archive is FilteredArchive || _raw.ContainsValue(archive))
+            foreach (IArchive archive in _open.Values)
             {
-                continue;
+                if (archive is FilteredArchive || _raw.ContainsValue(archive))
+                {
+                    continue;
+                }
+
+                archive.Dispose();
             }
 
-            archive.Dispose();
-        }
+            foreach (IArchive archive in _raw.Values)
+            {
+                archive.Dispose();
+            }
 
-        foreach (IArchive archive in _raw.Values)
-        {
-            archive.Dispose();
+            _open.Clear();
+            _raw.Clear();
         }
-
-        _open.Clear();
-        _raw.Clear();
     }
 
     private IArchive GetRawDat(string path)
     {
         string full = Path.GetFullPath(path);
-        if (_raw.TryGetValue(full, out IArchive? raw))
+        lock (_gate)
         {
-            return raw;
+            if (_raw.TryGetValue(full, out IArchive? cached))
+            {
+                return cached;
+            }
         }
 
-        raw = new DataArchive(full);
-        _raw[full] = raw;
-        return raw;
+        var created = new DataArchive(full);
+        lock (_gate)
+        {
+            if (_raw.TryGetValue(full, out IArchive? raced))
+            {
+                created.Dispose();
+                return raced;
+            }
+
+            _raw[full] = created;
+            return created;
+        }
     }
 
     private static string CacheKey(CatalogEntry entry) =>

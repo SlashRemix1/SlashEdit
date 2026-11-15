@@ -1,4 +1,5 @@
 using DarkAges.Formats.Data;
+using DarkAges.Formats.Unity;
 
 namespace DarkAges.Formats.Catalog;
 
@@ -6,7 +7,8 @@ public static class DatCatalog
 {
     private static readonly string[] SkipDirectoryNames =
     [
-        "bin", "obj", ".git", ".vs", "node_modules", "_mapeditor_src", "_agent_out"
+        "bin", "obj", ".git", ".vs", "node_modules", "_mapeditor_src", "_agent_out",
+        "BlackCipher", "Legend_Data"
     ];
 
     private static readonly string[] MetaNameHints =
@@ -24,6 +26,11 @@ public static class DatCatalog
         {
             foreach (string dat in EnumerateFilesSafe(root, "*.dat"))
             {
+                if (IsLauncherDat(dat))
+                {
+                    continue;
+                }
+
                 try
                 {
                     using var archive = DataArchive.OpenIndex(dat);
@@ -58,6 +65,7 @@ public static class DatCatalog
             AddFolderCatalog(results, root, DiscoverMapFolders([root]), null, ArchiveRole.Maps, "*.map", recursive: true);
             AddFolderCatalog(results, root, DiscoverBinkFolders([root]), "Cinematics", ArchiveRole.Cinematics, "*.bik", recursive: true);
             AddFolderCatalog(results, root, DiscoverMetaFolders([root]), "Metadata", ArchiveRole.Metadata, "*");
+            AddLodRCatalog(results, root);
 
             foreach (string dir in EnumerateDirectoriesSafe(root))
             {
@@ -400,6 +408,71 @@ public static class DatCatalog
                 stack.Push(sub);
             }
         }
+    }
+
+    private static void AddLodRCatalog(List<CatalogEntry> results, string root)
+    {
+        foreach (string dir in EnumerateDirectoriesSafe(root).Prepend(root))
+        {
+            string assetDir = Path.Combine(dir, "Asset");
+            if (Directory.Exists(assetDir))
+            {
+                foreach (string file in Directory.EnumerateFiles(assetDir))
+                {
+                    if (!UnityBundleArchive.LooksLike(file))
+                    {
+                        continue;
+                    }
+
+                    results.Add(new CatalogEntry
+                    {
+                        SourcePath = file,
+                        DisplayName = Path.GetFileName(file),
+                        Variant = "LoD R",
+                        Role = LodRAssets.Classify(file),
+                        IsFolder = false,
+                        EntryCount = 0
+                    });
+                }
+            }
+
+            string tableDir = Path.Combine(dir, "Table");
+            if (!Directory.Exists(tableDir))
+            {
+                continue;
+            }
+
+            int bins = 0;
+            try
+            {
+                bins = Directory.EnumerateFiles(tableDir, "*.bin").Count();
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (bins == 0)
+            {
+                continue;
+            }
+
+            results.Add(new CatalogEntry
+            {
+                SourcePath = tableDir,
+                DisplayName = "Tables",
+                Variant = "LoD R",
+                Role = ArchiveRole.Metadata,
+                IsFolder = true,
+                EntryCount = bins
+            });
+        }
+    }
+
+    private static bool IsLauncherDat(string path)
+    {
+        string stem = Path.GetFileNameWithoutExtension(path);
+        return stem.Length > 0 && stem.All(char.IsDigit);
     }
 
     private static bool ShouldSkip(string name) =>

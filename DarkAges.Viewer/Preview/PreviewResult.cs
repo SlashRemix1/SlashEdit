@@ -12,6 +12,8 @@ public sealed class PreviewResult
     public string Metadata { get; init; } = "";
     public int FrameCount { get; init; } = 1;
     public bool CanAnimate { get; init; }
+    public bool AutoPlay { get; init; }
+    public IReadOnlyList<PixelBuffer>? Frames { get; init; }
     public int FrameDelayMs { get; init; }
     public double FramesPerSecond { get; init; }
     public byte[]? Audio { get; init; }

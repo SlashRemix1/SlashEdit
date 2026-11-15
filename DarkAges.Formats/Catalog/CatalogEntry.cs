@@ -1,4 +1,5 @@
 using DarkAges.Formats.Data;
+using DarkAges.Formats.Unity;
 
 namespace DarkAges.Formats.Catalog;
 
@@ -23,6 +24,20 @@ public class CatalogEntry
         }
     }
 
+    private static bool IsXorTableFolder(string path)
+    {
+        try
+        {
+            return Path.GetFileName(path).Equals("Table", StringComparison.OrdinalIgnoreCase)
+                && Directory.Exists(path)
+                && Directory.EnumerateFiles(path, "*.bin").Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public IArchive Open()
     {
         if (!IsFolder)
@@ -32,7 +47,17 @@ public class CatalogEntry
                 return LrarArchive.Open(SourcePath, Role);
             }
 
+            if (UnityBundleArchive.LooksLike(SourcePath))
+            {
+                return new UnityBundleArchive(SourcePath);
+            }
+
             return FilteredArchive.WrapIfNeeded(new DataArchive(SourcePath), Role);
+        }
+
+        if (IsXorTableFolder(SourcePath))
+        {
+            return new Xor55FolderArchive(SourcePath);
         }
 
         return Role switch

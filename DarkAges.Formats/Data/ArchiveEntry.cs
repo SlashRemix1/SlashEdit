@@ -14,7 +14,7 @@ public sealed class ArchiveEntry
     }
 
     public string Name { get; }
-    public string DisplayName { get; }
+    public string DisplayName { get; set; }
     public int Size { get; }
     public int? FrameIndex { get; }
     public string Extension => Path.GetExtension(Name);

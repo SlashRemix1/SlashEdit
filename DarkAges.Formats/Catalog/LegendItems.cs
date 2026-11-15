@@ -5,6 +5,7 @@ namespace DarkAges.Formats.Catalog;
 
 public static class LegendItems
 {
+    /// <summary>Legend/7.xx sheets are often 266 tiles. Never use this to number DarkAges.dat — walk each EPF's real frame count.</summary>
     public const int TilesPerFile = 266;
 
     public static bool IsItemGraphic(ArchiveEntry entry)
@@ -56,48 +57,85 @@ public static class LegendItems
         return int.TryParse(digits, out int id) ? Math.Max(1, id) : 0;
     }
 
-    public static int ItemId(int fileNumber, int frameIndex) =>
-        Math.Max(1, (fileNumber - 1) * TilesPerFile + frameIndex + 1);
+    public static int ItemId(IArchive archive, int fileNumber, int frameIndex) =>
+        ItemId(archive.Entries, fileNumber, frameIndex);
+
+    public static int ItemId(IEnumerable<ArchiveEntry> entries, int fileNumber, int frameIndex)
+    {
+        int before = 0;
+        foreach (ArchiveEntry sheet in ItemSheets(entries))
+        {
+            if (FileNumber(sheet) >= fileNumber)
+            {
+                break;
+            }
+
+            before += Math.Max(0, EpfFile.PeekFrameCount(sheet));
+        }
+
+        return Math.Max(1, before + frameIndex + 1);
+    }
 
     public static IEnumerable<ArchiveEntry> Expand(IEnumerable<ArchiveEntry> entries)
     {
-        foreach (ArchiveEntry entry in entries)
+        var list = entries as IList<ArchiveEntry> ?? entries.ToList();
+        Dictionary<string, IReadOnlyList<ArchiveEntry>> sheets = ExpandSheets(list);
+        foreach (ArchiveEntry entry in list)
         {
-            if (!IsItemSheet(entry))
+            if (sheets.TryGetValue(entry.Name, out IReadOnlyList<ArchiveEntry>? tiles))
             {
-                yield return entry;
+                foreach (ArchiveEntry tile in tiles)
+                {
+                    yield return tile;
+                }
+
                 continue;
             }
 
-            IReadOnlyList<ArchiveEntry> tiles = ExpandSheet(entry);
-            if (tiles.Count == 0)
-            {
-                yield return entry;
-                continue;
-            }
-
-            foreach (ArchiveEntry tile in tiles)
-            {
-                yield return tile;
-            }
+            yield return entry;
         }
     }
 
-    public static IReadOnlyList<ArchiveEntry> ExpandSheet(ArchiveEntry entry)
+    public static Dictionary<string, IReadOnlyList<ArchiveEntry>> ExpandSheets(IEnumerable<ArchiveEntry> entries)
+    {
+        var map = new Dictionary<string, IReadOnlyList<ArchiveEntry>>(StringComparer.OrdinalIgnoreCase);
+        int nextId = 1;
+        foreach (ArchiveEntry sheet in ItemSheets(entries))
+        {
+            map[sheet.Name] = ExpandSheet(sheet, ref nextId);
+        }
+
+        return map;
+    }
+
+    public static IReadOnlyList<ArchiveEntry> ExpandSheet(ArchiveEntry entry) =>
+        ExpandSheet(entry, framesBefore: 0);
+
+    public static IReadOnlyList<ArchiveEntry> ExpandSheet(ArchiveEntry entry, int framesBefore)
+    {
+        int nextId = Math.Max(1, framesBefore + 1);
+        return ExpandSheet(entry, ref nextId);
+    }
+
+    private static IReadOnlyList<ArchiveEntry> ExpandSheet(ArchiveEntry entry, ref int nextId)
     {
         try
         {
             int frames = EpfFile.PeekFrameCount(entry);
             if (frames <= 1)
             {
+                if (frames == 1)
+                {
+                    nextId++;
+                }
+
                 return [entry];
             }
 
-            int fileNumber = FileNumber(entry);
             var tiles = new List<ArchiveEntry>(frames);
             for (int i = 0; i < frames; i++)
             {
-                int id = ItemId(fileNumber, i);
+                int id = nextId++;
                 tiles.Add(entry.WithFrame(i, $"item {id:D4}"));
             }
 
@@ -108,4 +146,10 @@ public static class LegendItems
             return [entry];
         }
     }
+
+    private static IEnumerable<ArchiveEntry> ItemSheets(IEnumerable<ArchiveEntry> entries) =>
+        entries
+            .Where(IsItemSheet)
+            .OrderBy(FileNumber)
+            .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
 }

@@ -21,6 +21,14 @@ public sealed class PixelBuffer
         stream.ReadExactly(Bgra, 0, Bgra.Length);
     }
 
+    public static PixelBuffer FromBgra(int width, int height, byte[] bgra)
+    {
+        var buffer = new PixelBuffer(width, height);
+        int n = Math.Min(buffer.Bgra.Length, bgra.Length);
+        Buffer.BlockCopy(bgra, 0, buffer.Bgra, 0, n);
+        return buffer;
+    }
+
     public static PixelBuffer FromRgba(int width, int height, ReadOnlySpan<byte> rgba)
     {
         var buffer = new PixelBuffer(width, height);
@@ -195,6 +203,27 @@ public sealed class PixelBuffer
         var copy = new PixelBuffer(Width, Height);
         Buffer.BlockCopy(Bgra, 0, copy.Bgra, 0, Bgra.Length);
         return copy;
+    }
+
+    public PixelBuffer FlipVertical()
+    {
+        var copy = Clone();
+        copy.FlipVerticalInPlace();
+        return copy;
+    }
+
+    public void FlipVerticalInPlace()
+    {
+        int stride = Width * 4;
+        var row = new byte[stride];
+        for (int y = 0; y < Height / 2; y++)
+        {
+            int top = y * stride;
+            int bot = (Height - 1 - y) * stride;
+            Buffer.BlockCopy(Bgra, top, row, 0, stride);
+            Buffer.BlockCopy(Bgra, bot, Bgra, top, stride);
+            Buffer.BlockCopy(row, 0, Bgra, bot, stride);
+        }
     }
 
     public (byte B, byte G, byte R, byte A) GetPixel(int x, int y)

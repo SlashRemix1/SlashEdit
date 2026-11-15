@@ -20,7 +20,7 @@ public static class DatCompatibility
                 "Fragments light maps are packed HEA atlases (dest 640×480, huge tile sheet). This editor paints a map-sized tile grid and cannot rewrite that layout, so Save overlay is blocked to avoid replacing 000500.hea and the other numbered sheets.",
             ClientFamily.Classic3 or ClientFamily.Classic7 or ClientFamily.ClassicNa =>
                 $"{ClientFamilies.Label(family)} has no map HEA light sheets. Lamp posts are wall HPFs. Writing a .hea overlay into seo.dat would not be loaded by the stock exe, so Save overlay is blocked.",
-            ClientFamily.LegendOfDarkness =>
+            ClientFamily.LegendOfDarkness or ClientFamily.LegendOfDarknessR =>
                 "Legend of Darkness light maps are not a known drop-in of this editor's tile-grid HEA, so Save overlay is blocked.",
             ClientFamily.AoC =>
                 "Legends AoC packs are read-only.",

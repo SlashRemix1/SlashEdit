@@ -180,9 +180,8 @@
                         <DataTemplate>
                             <StackPanel Margin="2">
                                 <TextBlock Text="{Binding Title}"/>
-                                <TextBlock Foreground="#9AA0AE" FontSize="11">
-                                    <Run Text="{Binding EntryCount, Mode=OneWay}"/> <Run Text="entries"/>
-                                </TextBlock>
+                                <TextBlock Foreground="#9AA0AE" FontSize="11"
+                                           Text="{Binding CountLabel, Mode=OneWay}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -221,6 +220,13 @@
             <DockPanel Grid.Column="4">
                 <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                     <Button x:Name="PlayPauseButton" Content="Play / Pause" Click="PlayClicked"/>
+                    <StackPanel x:Name="PlaybackSpeedPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,4,0">
+                        <TextBlock Text="Speed" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="PlaybackSpeedBox" Width="72" VerticalAlignment="Center"
+                                  SelectionChanged="PlaybackSpeedChanged"
+                                  ToolTip="How fast Play steps through effect, monster, and other sprite frames."/>
+                        <TextBlock Text="fps" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    </StackPanel>
                     <Button x:Name="PrevFrameButton" Content="Prev" Click="PrevClicked"/>
                     <Button x:Name="NextFrameButton" Content="Next" Click="NextClicked"/>
                     <Button x:Name="PlaySoundButton" Content="Play sound" Click="PlaySoundClicked"/>
@@ -238,6 +244,12 @@
                                 <MenuItem x:Name="TileGridItem" Header="Tile grid" Click="TileGridClicked"/>
                                 <MenuItem x:Name="SheetItem" Header="Sheet" Click="SheetClicked"/>
                                 <MenuItem x:Name="ExportPngItem" Header="Export PNG" Click="ExportClicked"/>
+                                <MenuItem x:Name="ImportUnityPngItem" Header="Import PNG into texture…"
+                                          Click="ImportUnityPngClicked"
+                                          ToolTip="Replace this Unity Texture2D or Sprite and keep the bundle XOR 0x55. Save Unity bundle writes it back."/>
+                                <MenuItem x:Name="SaveUnityItem" Header="Save Unity bundle"
+                                          Click="SaveUnityBundleClicked"
+                                          ToolTip="Write texture edits back into the XOR'd UnityFS file. Copies .bak on the first save."/>
                                 <MenuItem Header="Export JSON…" Tag="json" Click="ExportDataClicked"
                                           ToolTip="Write the current list, table, or map tiles as JSON"/>
                                 <MenuItem Header="Export CSV…" Tag="csv" Click="ExportDataClicked"
@@ -446,6 +458,9 @@
                         <StackPanel x:Name="FramePanel">
                             <TextBlock x:Name="FrameLabel" Text="Frame 1 / 1" FontSize="11" Foreground="#9AA0AE"/>
                             <Slider x:Name="FrameSlider" Minimum="0" Maximum="0" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,4,0,8" ValueChanged="FrameSliderChanged"/>
+                            <TextBlock Text="Playback speed" FontSize="11" Foreground="#9AA0AE"/>
+                            <ComboBox x:Name="FrameSpeedBox" Margin="0,4,0,8" SelectionChanged="PlaybackSpeedChanged"
+                                      ToolTip="How fast Play steps through these frames."/>
                         </StackPanel>
                         <StackPanel x:Name="ZoomPanel">
                             <TextBlock Text="Zoom (mouse wheel)" FontSize="11" Foreground="#9AA0AE"/>

@@ -247,8 +247,8 @@ public static class PaletteLocator
         if (stem.StartsWith("item", StringComparison.OrdinalIgnoreCase))
         {
             int tileId = entry.FrameIndex is int frame
-                ? LegendItems.ItemId(Math.Max(number, 1), frame)
-                : LegendItems.ItemId(Math.Max(number, 1), 0);
+                ? LegendItems.ItemId(archive, Math.Max(number, 1), frame)
+                : LegendItems.ItemId(archive, Math.Max(number, 1), 0);
             Palette? item = FromTable(archive, "itempal.tbl", "item", tileId)
                 ?? TryGet(archive, "item000.pal");
             if (item is not null)

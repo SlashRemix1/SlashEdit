@@ -98,6 +98,12 @@
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                     <TextBlock x:Name="FrameLabel" DockPanel.Dock="Left" Text="Frame 0" Foreground="#9AA0AE"
                                VerticalAlignment="Center" Width="80"/>
+                    <ComboBox x:Name="PlaybackSpeedBox" DockPanel.Dock="Right" Width="88" Margin="8,0,0,0"
+                              VerticalAlignment="Center" SelectionChanged="PlaybackSpeedChanged"
+                              ToolTip="How fast Play steps through this effect."/>
+                    <Button x:Name="PlayEffectButton" DockPanel.Dock="Right" Content="Play" MinWidth="64" Margin="8,0,0,0"
+                            Click="PlayEffectClicked"
+                            ToolTip="Play every frame of this effect in order"/>
                     <Slider x:Name="FrameSlider" Minimum="0" Maximum="0" TickFrequency="1" IsSnapToTickEnabled="True"
                             ValueChanged="FrameChanged"/>
                 </DockPanel>

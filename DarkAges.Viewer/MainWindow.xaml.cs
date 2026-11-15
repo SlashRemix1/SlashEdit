@@ -14,7 +14,8 @@ using DarkAges.Formats.Imaging;
 using DarkAges.Formats.IO;
 using DarkAges.Viewer.Imaging;
 using DarkAges.Formats.Maps;
-#if LOCAL_UNITY
+using DarkAges.Formats.Unity;
+#if LOCAL_UNITY || LOCAL_GODOT
 using DarkAges.Viewer.Export;
 #endif
 using DarkAges.Viewer.Maps;
@@ -35,7 +36,8 @@ public partial class MainWindow : Window
     private ArchiveCache? _cache;
     private PreviewResult? _preview;
     private int _frame;
-    private bool _playing = true;
+    private bool _playing;
+    private BitmapSource[]? _clipFrames;
     private bool _syncingFrame;
     private IWavePlayer? _player;
     private WaveStream? _wave;
@@ -74,6 +76,7 @@ public partial class MainWindow : Window
     private bool _restoringViewer;
     private double _previewZoom = 1;
     private bool _syncingZoom;
+    private bool _syncingSpeed;
     private bool _syncingClient;
     private bool _suppressAutoGallery;
     private string? _colorVariantKey;
@@ -98,6 +101,7 @@ public partial class MainWindow : Window
         MotionBox.SelectedIndex = 0;
         ZoomBox.ItemsSource = ViewZoom.Presets;
         ZoomBox.SelectedIndex = ViewZoom.ClosestPresetIndex(1);
+        BindPlaybackSpeed();
         ArchiveList.ItemsSource = _archives;
         if (GalleryPageSizeBox is not null)
         {
@@ -126,6 +130,15 @@ public partial class MainWindow : Window
         unityItem.Click += UnityExportClicked;
         MoreMenu.Items.Insert(MoreMenu.Items.IndexOf(AboutSeparator), unityItem);
 #endif
+#if LOCAL_GODOT
+        var godotItem = new MenuItem
+        {
+            Header = "Export Godot…",
+            ToolTip = "Dump LoD R Unity sprites, tables, and audio as a Godot 4 PNG/JSON pack"
+        };
+        godotItem.Click += GodotExportClicked;
+        MoreMenu.Items.Insert(MoreMenu.Items.IndexOf(AboutSeparator), godotItem);
+#endif
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _timer.Tick += (_, _) =>
@@ -145,10 +158,17 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (_playing && ContactSheetBox?.IsChecked != true && _preview is { CanAnimate: true, FrameCount: > 1 })
+                if (_playing && !ContactSheetBlocksPlay())
                 {
-                    _frame = (_frame + 1) % _preview.FrameCount;
-                    RefreshPreview(showBusy: false);
+                    int count = AnimFrameCount();
+                    if (count > 1)
+                    {
+                        _frame = (_frame + 1) % count;
+                        if (!TryShowClipFrame())
+                        {
+                            RefreshPreview(showBusy: false);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -904,6 +924,26 @@ public partial class MainWindow : Window
     }
 #endif
 
+#if LOCAL_GODOT
+    private void GodotExportClicked(object sender, RoutedEventArgs e)
+    {
+        if (_cache is null || _archives.Count == 0)
+        {
+            System.Windows.MessageBox.Show("Load a client folder first.");
+            return;
+        }
+
+        var window = new GodotExportWindow(
+            _cache,
+            _archives.ToList(),
+            ArchiveList.SelectedItem as CatalogEntry)
+        {
+            Owner = this
+        };
+        window.ShowDialog();
+    }
+#endif
+
     private void MapEditorClicked(object sender, RoutedEventArgs e) => EnsureMapEditor();
 
     private void SecondMapEditorClicked(object sender, RoutedEventArgs e) => OpenSecondMapEditor();
@@ -1393,7 +1433,7 @@ public partial class MainWindow : Window
 
         Busy.Run(this, "Opening Graphic Editor…", () =>
         {
-            _graphicEditor = new GraphicEditorWindow(_cache, _archives.ToList(), kind, _workspace.ActiveClient) { Owner = this };
+            _graphicEditor = new GraphicEditorWindow(_cache, _archives.ToList(), kind, _workspace.ActiveClient, _settings) { Owner = this };
             _graphicEditor.Closed += (_, _) => _graphicEditor = null;
             _graphicEditor.Show();
         });
@@ -1494,7 +1534,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_cache is null)
+            if (_cache is null || catalog.Variant == "LoD R" || UnityBundleArchive.LooksLike(catalog.SourcePath))
             {
                 return false;
             }
@@ -1570,6 +1610,11 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (catalog.Variant == "LoD R" || UnityBundleArchive.LooksLike(catalog.SourcePath))
+            {
+                return false;
+            }
+
             return _cache?.Get(catalog).Entries.Any(e => e.Name.StartsWith("stc", StringComparison.OrdinalIgnoreCase)) == true;
         }
         catch
@@ -1693,6 +1738,21 @@ public partial class MainWindow : Window
         return true;
     }
 
+    private IArchive OpenSelectedArchive(CatalogEntryView item)
+    {
+        if (_cache is null)
+        {
+            throw new InvalidOperationException("No archive cache.");
+        }
+
+        if (_cache.Contains(item) || !UnityBundleArchive.LooksLike(item.SourcePath))
+        {
+            return _cache.Get(item);
+        }
+
+        return Busy.Compute(this, $"Opening {item.DisplayName}…", _ => _cache.Get(item));
+    }
+
     private void ArchiveSelected(object sender, SelectionChangedEventArgs e) => FillEntries();
 
     private void FillEntries()
@@ -1714,10 +1774,11 @@ public partial class MainWindow : Window
 
         try
         {
-            IArchive archive = _cache.Get(item);
+            IArchive archive = OpenSelectedArchive(item);
             IEnumerable<ArchiveEntry> entries = archive.Entries;
             string workspace = WorkspaceBox.SelectedItem as string ?? "All";
-            entries = FilterEntries(entries, workspace);
+            bool unity = archive is UnityBundleArchive;
+            entries = unity ? entries : FilterEntries(entries, workspace);
             entries = IconSheets.Expand(entries);
             entries = FloorTiles.Expand(entries);
             if (HidePalBox?.IsChecked == true)
@@ -1746,7 +1807,7 @@ public partial class MainWindow : Window
             BindEntryPage();
             var palettes = new List<string> { "(auto)" };
             palettes.AddRange(PaletteLocator.Palettes(archive).Select(p => p.Name));
-            if (item.Role == ArchiveRole.Maps)
+            if (item.Role == ArchiveRole.Maps && !unity)
             {
                 IReadOnlyList<MapAssets> tilesets = GetMapTilesets();
                 palettes.AddRange(tilesets
@@ -1795,22 +1856,45 @@ public partial class MainWindow : Window
                 MotionBox.SelectedIndex = 0;
             }
 
-            bool tileGallery = item.Role is ArchiveRole.Floors or ArchiveRole.Items or ArchiveRole.Mobs
+            if (item.EntryCount != list.Count)
+            {
+                item.EntryCount = list.Count;
+            }
+
+            bool tileGallery = !unity && item.Role is ArchiveRole.Floors or ArchiveRole.Items or ArchiveRole.Mobs
                 or ArchiveRole.Walls or ArchiveRole.PlayerSprites or ArchiveRole.Effects or ArchiveRole.Ui;
-            if (!_suppressAutoGallery && tileGallery && GalleryBox is not null)
+            if (GalleryBox is not null && (unity || (!_suppressAutoGallery && tileGallery)))
             {
                 _ignoreGalleryToggle = true;
-                GalleryBox.IsChecked = true;
+                GalleryBox.IsChecked = unity ? false : true;
                 _ignoreGalleryToggle = false;
             }
 
             if (list.Count > 0 && !_suppressAutoGallery)
             {
-                EntryList.SelectedIndex = 0;
+                if (unity)
+                {
+                    int idx = list.FindIndex(e => LodRAssets.IsImageEntry(e.Name)
+                        && !e.Name.Equals(UnityBundleArchive.MapPreviewName, StringComparison.OrdinalIgnoreCase));
+                    if (idx < 0)
+                    {
+                        idx = list.FindIndex(e =>
+                            !e.Name.Equals(UnityBundleArchive.MapPreviewName, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    if (idx >= 0)
+                    {
+                        EntryList.SelectedIndex = idx;
+                    }
+                }
+                else
+                {
+                    EntryList.SelectedIndex = 0;
+                }
             }
 
             UpdateActionBar();
-            if (!_suppressAutoGallery && GalleryBox?.IsChecked == true && GalleryBox.Visibility == Visibility.Visible)
+            if (!unity && !_suppressAutoGallery && GalleryBox?.IsChecked == true && GalleryBox.Visibility == Visibility.Visible)
             {
                 _ = StartGallery(GalleryEntries(item, _entrySource), "Gallery");
             }
@@ -1868,8 +1952,13 @@ public partial class MainWindow : Window
             HideGallery();
         }
 
-        _frame = IdleFrameFor(EntryList.SelectedItem as ArchiveEntry);
+        EnsureUnitySpriteIndex();
+        _frame = SequenceFrame(EntryList.SelectedItem as ArchiveEntry);
         RefreshPreview();
+        if (_preview?.AutoPlay == true)
+        {
+            StartClipPlayback();
+        }
     }
 
     private void GalleryToggled(object sender, RoutedEventArgs e)
@@ -2042,6 +2131,7 @@ public partial class MainWindow : Window
         MetaBox.Text = result.Metadata;
         UpdateFrameUi(result);
         ApplyPreviewClock(result);
+        HydrateClip(result);
         if (result.Error is not null)
         {
             ErrorText.Text = result.Error;
@@ -2250,12 +2340,153 @@ public partial class MainWindow : Window
             RevealListed(match);
         }
 
-        _frame = IdleFrameFor(match);
+        EnsureUnitySpriteIndex();
+        _frame = SequenceFrame(match);
         RefreshPreview();
+        if (_preview?.AutoPlay == true)
+        {
+            StartClipPlayback();
+        }
     }
 
     private static int IdleFrameFor(ArchiveEntry? entry) =>
         entry is not null && KhanPieces.TryParse(entry.Name, out _) ? KhanPieces.IdleDirection : 0;
+
+    private int SequenceFrame(ArchiveEntry? entry)
+    {
+        if (entry is not null && KhanPieces.TryParse(entry.Name, out _))
+        {
+            return KhanPieces.IdleDirection;
+        }
+
+        if (entry is not null
+            && ArchiveList?.SelectedItem is CatalogEntryView catalog
+            && _cache is not null
+            && _cache.Contains(catalog)
+            && _cache.Get(catalog) is UnityBundleArchive unity)
+        {
+            return unity.SequenceIndex(entry);
+        }
+
+        return 0;
+    }
+
+    private void EnsureUnitySpriteIndex()
+    {
+        if (ArchiveList?.SelectedItem is not CatalogEntryView catalog
+            || _cache is null
+            || !_cache.Contains(catalog)
+            || _cache.Get(catalog) is not UnityBundleArchive unity
+            || unity.SpriteIndexReady)
+        {
+            return;
+        }
+
+        Busy.Run(this, "Indexing sprite frames…", unity.EnsureSpriteIndex);
+        CollectionViewSource.GetDefaultView(EntryList.ItemsSource)?.Refresh();
+    }
+
+    private bool ContactSheetBlocksPlay() =>
+        ContactSheetBox?.IsVisible == true && ContactSheetBox.IsChecked == true;
+
+    private void HydrateClip(PreviewResult result)
+    {
+        if (result.Frames is { Count: > 1 } frames)
+        {
+            var bitmaps = new BitmapSource[frames.Count];
+            for (int i = 0; i < frames.Count; i++)
+            {
+                bitmaps[i] = WpfImages.ToBitmap(frames[i]);
+            }
+
+            _clipFrames = bitmaps;
+            return;
+        }
+
+        _clipFrames = null;
+    }
+
+    private void EnsureClipFrames()
+    {
+        if (_clipFrames is { Length: > 1 })
+        {
+            return;
+        }
+
+        if (_preview?.Frames is { Count: > 1 })
+        {
+            HydrateClip(_preview);
+            return;
+        }
+
+        if (ArchiveList?.SelectedItem is not CatalogEntryView catalog
+            || EntryList?.SelectedItem is not ArchiveEntry entry
+            || _cache is null)
+        {
+            return;
+        }
+
+        IArchive archive = _cache.Get(catalog);
+        IReadOnlyList<PixelBuffer> frames;
+        if (archive is UnityBundleArchive unity)
+        {
+            UnityObjectPreview preview = unity.Preview(entry, _frame, animateSequence: true);
+            frames = preview.Frames ?? [];
+        }
+        else
+        {
+            frames = PreviewBuilder.ExtractFrames(
+                archive,
+                entry,
+                maxFrames: 64,
+                paletteOverride: SelectedPaletteName(),
+                padToSheet: false);
+        }
+
+        if (frames.Count > 1)
+        {
+            var bitmaps = new BitmapSource[frames.Count];
+            for (int i = 0; i < frames.Count; i++)
+            {
+                bitmaps[i] = WpfImages.ToBitmap(frames[i]);
+            }
+
+            _clipFrames = bitmaps;
+            if (_preview is { CanAnimate: true } || frames.Count > 1)
+            {
+                _preview = new PreviewResult
+                {
+                    Image = _preview?.Image ?? bitmaps[Math.Clamp(_frame, 0, bitmaps.Length - 1)],
+                    Pixels = _preview?.Pixels,
+                    Metadata = _preview?.Metadata ?? "",
+                    FrameCount = bitmaps.Length,
+                    CanAnimate = true,
+                    Frames = frames
+                };
+                UpdateFrameUi(_preview);
+                UpdateActionBar();
+            }
+        }
+    }
+
+    private bool TryShowClipFrame()
+    {
+        if (_clipFrames is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        int index = Math.Clamp(_frame, 0, _clipFrames.Length - 1);
+        _frame = index;
+        PreviewImage.Source = _clipFrames[index];
+        PreviewImage.Visibility = Visibility.Visible;
+        _syncingFrame = true;
+        FrameSlider.Maximum = Math.Max(0, _clipFrames.Length - 1);
+        FrameSlider.Value = index;
+        FrameLabel.Text = $"Frame {index + 1} / {_clipFrames.Length}";
+        _syncingFrame = false;
+        return true;
+    }
 
     private void HideGallery(bool updateBar = true)
     {
@@ -3007,7 +3238,12 @@ public partial class MainWindow : Window
         }
 
         _frame = (int)e.NewValue;
-        _playing = false;
+        if (FrameSlider.IsMouseCaptureWithin || FrameSlider.IsKeyboardFocused)
+        {
+            _playing = false;
+            UpdatePlayButton();
+        }
+
         if (GalleryVisible)
         {
             Busy.Run(this, "Loading gallery frames…", () =>
@@ -3026,7 +3262,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        RefreshPreview(showBusy: false);
+        if (TryShowClipFrame())
+        {
+            return;
+        }
+
+        EnsureClipFrames();
+        if (!TryShowClipFrame())
+        {
+            RefreshPreview(showBusy: false);
+        }
     }
 
     private void UpdateActionBar()
@@ -3045,7 +3290,7 @@ public partial class MainWindow : Window
         bool image = gallery || _preview?.Image is not null;
         bool multiFrame = gallery || _preview is { FrameCount: > 1 } || cinematic;
         bool animate = gallery || _preview?.CanAnimate == true || cinematic;
-        bool map = ext == ".map" || catalog?.Role == ArchiveRole.Maps;
+        bool map = ext == ".map";
         bool epf = ext == ".epf";
         bool khan = catalog?.Role == ArchiveRole.PlayerSprites
             || (entry is not null && KhanPieces.TryParse(entry.Name, out _));
@@ -3070,13 +3315,25 @@ public partial class MainWindow : Window
         }
 
         ShowIf(PlayPauseButton, (animate && !audio && !dataView) || cinematic);
+        ShowIf(PlaybackSpeedPanel, (animate && !audio && !dataView) || gallery);
+        UpdatePlayButton();
         ShowIf(PrevFrameButton, (multiFrame && !audio && !dataView) || cinematic);
         ShowIf(NextFrameButton, (multiFrame && !audio && !dataView) || cinematic);
         ShowIf(TileGridItem, tileArchive && !gallery);
         ShowIf(SheetItem, epf && !gallery);
         ShowIf(ExportPngItem, image && (!audio || cinematic) && !dataView);
-        ShowIf(ExtractItem, entry is not null && !gallery);
-        bool actions = (tileArchive && !gallery) || (epf && !gallery) || (image && !audio && !dataView) || (entry is not null && !gallery) || gallery || _archives.Count > 0;
+        bool unityArchive = catalog is not null && _cache is not null
+            && _cache.Get(catalog) is UnityBundleArchive unity
+            && (unity.HasEdits || (entry is not null && unity.CanReplacePixels(entry)));
+        bool unityTexture = !gallery && entry is not null && catalog is not null && _cache is not null
+            && _cache.Get(catalog) is UnityBundleArchive replaceable
+            && replaceable.CanReplacePixels(entry);
+        bool unityDirty = catalog is not null && _cache is not null
+            && _cache.Get(catalog) is UnityBundleArchive dirty && dirty.HasEdits;
+        ShowIf(ImportUnityPngItem, unityTexture);
+        ShowIf(SaveUnityItem, unityDirty || unityTexture);
+        ShowIf(ExtractItem, entry is not null && !gallery && entry.Name != UnityBundleArchive.MapPreviewName);
+        bool actions = (tileArchive && !gallery) || (epf && !gallery) || (image && !audio && !dataView) || (entry is not null && !gallery) || gallery || _archives.Count > 0 || unityArchive;
         ShowIf(PreviewActionsButton, actions);
         bool canFavorite = !gallery && entry is not null && catalog is not null;
         ShowIf(FavoriteButton, canFavorite);
@@ -3218,18 +3475,30 @@ public partial class MainWindow : Window
     }
 
     private static bool IsAudioExt(string ext) =>
-        ext is ".mp3" or ".wav";
+        ext is ".mp3" or ".wav" or ".ogg" or ".audioclip";
 
     private static bool IsGalleryExt(string ext)
     {
         ext = ext.ToLowerInvariant();
         return ext is ".epf" or ".mpf" or ".hpf" or ".spf" or ".bmp" or ".pcx" or ".map"
             or ".efa" or ".hea" or ".jpf" or ".jpg" or ".jpeg" or ".png" or ".rgba" or ".bik"
-            or ".fnt" or ".lft" or ".upf";
+            or ".fnt" or ".lft" or ".upf"
+            or ".texture2d" or ".sprite" or ".cubemap" or ".rendertexture";
     }
 
     private static IEnumerable<ArchiveEntry> GalleryEntries(CatalogEntryView catalog, IEnumerable<ArchiveEntry> entries)
     {
+        var list = entries as IList<ArchiveEntry> ?? entries.ToList();
+        if (list.Any(e => e.Extension.Equals(".sprite", StringComparison.OrdinalIgnoreCase)))
+        {
+            return list.Where(e => e.Extension.Equals(".sprite", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (list.Any(e => LodRAssets.IsImageEntry(e.Name)))
+        {
+            return list.Where(e => LodRAssets.IsImageEntry(e.Name));
+        }
+
         return catalog.Role switch
         {
             ArchiveRole.Floors => entries.Where(FloorTiles.IsFloorName),
@@ -3308,6 +3577,7 @@ public partial class MainWindow : Window
             }
 
             _playing = !_playing;
+            UpdatePlayButton();
             StatusText.Text = _playing
                 ? $"Gallery: {_gallery!.Count} images — playing"
                 : $"Gallery: {_gallery!.Count} images — paused";
@@ -3349,7 +3619,55 @@ public partial class MainWindow : Window
             return;
         }
 
-        _playing = !_playing;
+        if (_playing)
+        {
+            _playing = false;
+            UpdatePlayButton();
+            StatusText.Text = "Paused.";
+            return;
+        }
+
+        if (ContactSheetBlocksPlay())
+        {
+            ContactSheetBox.IsChecked = false;
+        }
+
+        StartClipPlayback();
+    }
+
+    private void StartClipPlayback()
+    {
+        EnsureClipFrames();
+        int count = AnimFrameCount();
+        if (count <= 1)
+        {
+            _playing = false;
+            UpdatePlayButton();
+            StatusText.Text = "This entry has only one frame.";
+            return;
+        }
+
+        _playing = true;
+        UpdatePlayButton();
+        StatusText.Text = $"Playing {count} frames.";
+        Dispatcher.BeginInvoke(() =>
+        {
+            _playing = true;
+            UpdatePlayButton();
+        }, DispatcherPriority.Background);
+    }
+
+    private int AnimFrameCount() =>
+        _clipFrames is { Length: > 1 } ? _clipFrames.Length
+        : _preview is { CanAnimate: true, FrameCount: > 1 } ? _preview.FrameCount
+        : 1;
+
+    private void UpdatePlayButton()
+    {
+        if (PlayPauseButton is not null)
+        {
+            PlayPauseButton.Content = _playing ? "Pause" : "Play";
+        }
     }
 
     private void PrevClicked(object sender, RoutedEventArgs e)
@@ -3378,7 +3696,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            RefreshPreview(showBusy: false);
+            EnsureClipFrames();
+            if (!TryShowClipFrame())
+            {
+                RefreshPreview(showBusy: false);
+            }
         }
     }
 
@@ -3408,7 +3730,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            RefreshPreview(showBusy: false);
+            EnsureClipFrames();
+            if (!TryShowClipFrame())
+            {
+                RefreshPreview(showBusy: false);
+            }
         }
     }
 
@@ -3450,20 +3776,92 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ImportUnityPngClicked(object sender, RoutedEventArgs e)
+    {
+        if (ArchiveList.SelectedItem is not CatalogEntryView catalog
+            || EntryList.SelectedItem is not ArchiveEntry entry
+            || _cache is null
+            || _cache.Get(catalog) is not UnityBundleArchive unity
+            || !unity.CanReplacePixels(entry))
+        {
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "PNG|*.png|Images|*.png;*.bmp;*.jpg;*.jpeg|All files|*.*"
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        PixelBuffer? pixels = WpfImages.TryDecodeImage(File.ReadAllBytes(dialog.FileName));
+        if (pixels is null)
+        {
+            System.Windows.MessageBox.Show(this, "Could not read that image.", "Import PNG");
+            return;
+        }
+
+        UnityObjectPreview result = unity.ReplacePixels(entry, pixels);
+        if (!string.IsNullOrWhiteSpace(result.Error) && result.Pixels is null)
+        {
+            System.Windows.MessageBox.Show(this, result.Error, "Import PNG");
+            return;
+        }
+
+        RefreshPreview(showBusy: false);
+        StatusText.Text = $"Imported {Path.GetFileName(dialog.FileName)} into {entry.DisplayName}. Save Unity bundle to write the XOR'd file.";
+    }
+
+    private void SaveUnityBundleClicked(object sender, RoutedEventArgs e)
+    {
+        if (ArchiveList.SelectedItem is not CatalogEntryView catalog
+            || _cache is null
+            || _cache.Get(catalog) is not UnityBundleArchive unity)
+        {
+            return;
+        }
+
+        try
+        {
+            string message = unity.Save();
+            StatusText.Text = message;
+            UpdateActionBar();
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(this, ex.Message, "Save Unity bundle");
+        }
+    }
+
     private void ExportClicked(object sender, RoutedEventArgs e)
     {
-        BitmapSource? image = PreviewImage.Source as BitmapSource ?? _preview?.Image;
-        if (image is null)
+        PixelBuffer? pixels = _preview?.Pixels;
+        BitmapSource? image = pixels is null
+            ? PreviewImage.Source as BitmapSource ?? _preview?.Image
+            : null;
+        if (pixels is null && image is null)
         {
             return;
         }
 
         var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "PNG|*.png", FileName = "export.png" };
-        if (dialog.ShowDialog() == true)
+        if (dialog.ShowDialog() != true)
         {
-            WpfImages.SavePng(image, dialog.FileName);
-            StatusText.Text = $"Saved {dialog.FileName}";
+            return;
         }
+
+        if (pixels is not null)
+        {
+            PngWriter.Write(pixels, dialog.FileName);
+        }
+        else
+        {
+            WpfImages.SavePng(image!, dialog.FileName);
+        }
+
+        StatusText.Text = $"Saved {dialog.FileName}";
     }
 
     private void ExportDataClicked(object sender, RoutedEventArgs e)
@@ -3693,7 +4091,75 @@ public partial class MainWindow : Window
             return;
         }
 
-        _timer.Interval = TimeSpan.FromMilliseconds(120);
+        ApplyUserPlaybackClock();
+    }
+
+    private void BindPlaybackSpeed()
+    {
+        int fps = PlaybackSpeed.ClampFps(_settings.PlaybackFps);
+        _settings.PlaybackFps = fps;
+        _syncingSpeed = true;
+        if (PlaybackSpeedBox is not null)
+        {
+            PlaybackSpeedBox.ItemsSource = PlaybackSpeed.FpsChoices;
+            PlaybackSpeedBox.SelectedItem = fps;
+        }
+
+        if (FrameSpeedBox is not null)
+        {
+            FrameSpeedBox.ItemsSource = PlaybackSpeed.FpsChoices;
+            FrameSpeedBox.SelectedItem = fps;
+        }
+
+        _syncingSpeed = false;
+        ApplyUserPlaybackClock();
+    }
+
+    private void PlaybackSpeedChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSpeed || !IsLoaded)
+        {
+            return;
+        }
+
+        int fps = PlaybackSpeedBox?.SelectedItem as int?
+            ?? FrameSpeedBox?.SelectedItem as int?
+            ?? PlaybackSpeed.DefaultFps;
+        if (sender is System.Windows.Controls.ComboBox box && box.SelectedItem is int chosen)
+        {
+            fps = chosen;
+        }
+
+        fps = PlaybackSpeed.ClampFps(fps);
+        _settings.PlaybackFps = fps;
+        _settings.Save();
+        _syncingSpeed = true;
+        if (PlaybackSpeedBox is not null && PlaybackSpeedBox.SelectedItem as int? != fps)
+        {
+            PlaybackSpeedBox.SelectedItem = fps;
+        }
+
+        if (FrameSpeedBox is not null && FrameSpeedBox.SelectedItem as int? != fps)
+        {
+            FrameSpeedBox.SelectedItem = fps;
+        }
+
+        _syncingSpeed = false;
+        ApplyUserPlaybackClock();
+        if (StatusText is not null)
+        {
+            StatusText.Text = $"Playback speed {fps} fps.";
+        }
+    }
+
+    private void ApplyUserPlaybackClock()
+    {
+        if (_timer is null || _preview?.Cinematic is not null)
+        {
+            return;
+        }
+
+        _timer.Interval = PlaybackSpeed.Interval(_settings.PlaybackFps);
     }
 
     private void BindCinematicSurface(BinkClip clip, PixelBuffer? pixels)
@@ -3831,8 +4297,10 @@ public sealed class SearchHit
     public string Label { get; }
 }
 
-public sealed class CatalogEntryView : CatalogEntry
+public sealed class CatalogEntryView : CatalogEntry, INotifyPropertyChanged
 {
+    private int _entryCount;
+
     public CatalogEntryView(CatalogEntry inner)
     {
         SourcePath = inner.SourcePath;
@@ -3840,8 +4308,33 @@ public sealed class CatalogEntryView : CatalogEntry
         Variant = inner.Variant;
         Role = inner.Role;
         IsFolder = inner.IsFolder;
-        EntryCount = inner.EntryCount;
+        _entryCount = inner.EntryCount;
+    }
+
+    public new int EntryCount
+    {
+        get => _entryCount;
+        set
+        {
+            if (_entryCount == value)
+            {
+                return;
+            }
+
+            _entryCount = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EntryCount)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CountLabel)));
+        }
     }
 
     public string RoleLabel => ArchiveRoleNames.Label(Role);
+
+    public string CountLabel =>
+        _entryCount > 0
+            ? $"{_entryCount} entries"
+            : Variant == "LoD R" && !IsFolder
+                ? "Unity bundle"
+                : "0 entries";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using DarkAges.Formats.Catalog;
 using DarkAges.Formats.Data;
 using DarkAges.Formats.Drawing;
@@ -34,16 +35,21 @@ public partial class GraphicEditorWindow : Window
     private FileRow? _current;
     private bool _syncing;
     private readonly ClientProfile? _client;
+    private readonly AppSettings _settings;
     private int _galleryPage;
     private IReadOnlyList<FloorFamily> _floorFamilies = FloorFamilies.Seeds;
     private IReadOnlyList<WallFamily> _wallFamilies = [];
+    private readonly DispatcherTimer _playTimer = new() { Interval = PlaybackSpeed.Interval(PlaybackSpeed.DefaultFps) };
+    private bool _playing;
+    private bool _syncingSpeed;
 
-    public GraphicEditorWindow(ArchiveCache? cache, IReadOnlyList<CatalogEntry> catalogs, Kind kind, ClientProfile? client = null)
+    public GraphicEditorWindow(ArchiveCache? cache, IReadOnlyList<CatalogEntry> catalogs, Kind kind, ClientProfile? client = null, AppSettings? settings = null)
     {
         InitializeComponent();
         _cache = cache;
         _catalogs = catalogs.ToList();
         _client = client;
+        _settings = settings ?? AppSettings.Load();
         _kind = kind;
         KindBox.ItemsSource = Enum.GetValues<Kind>();
         KindBox.SelectedItem = kind;
@@ -51,6 +57,13 @@ public partial class GraphicEditorWindow : Window
         BlendBox.SelectedItem = EfaBlend.Additive;
         FileList.ItemsSource = _files;
         Paint.PixelsChanged += PaintPixelsChanged;
+        BindPlaybackSpeed();
+        _playTimer.Tick += (_, _) => AdvancePlay();
+        Closed += (_, _) =>
+        {
+            _playing = false;
+            _playTimer.Stop();
+        };
         Title = $"Graphic Editor — {kind}";
         LoadFiles();
     }
@@ -222,6 +235,7 @@ public partial class GraphicEditorWindow : Window
         }
 
         _current = row;
+        StopPlay();
         try
         {
             EnsureLoaded(row);
@@ -1429,6 +1443,101 @@ public partial class GraphicEditorWindow : Window
         if (EffectBar is not null)
         {
             EffectBar.Visibility = _kind == Kind.Effects ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        Visibility play = _kind == Kind.Effects ? Visibility.Visible : Visibility.Collapsed;
+        if (PlayEffectButton is not null)
+        {
+            PlayEffectButton.Visibility = play;
+            if (_kind != Kind.Effects)
+            {
+                StopPlay();
+            }
+        }
+
+        if (PlaybackSpeedBox is not null)
+        {
+            PlaybackSpeedBox.Visibility = play;
+        }
+    }
+
+    private void PlayEffectClicked(object sender, RoutedEventArgs e)
+    {
+        if (_current is null || _current.FrameCount <= 1)
+        {
+            StatusText.Text = "This effect has only one frame.";
+            return;
+        }
+
+        if (_playing)
+        {
+            StopPlay();
+            return;
+        }
+
+        _playing = true;
+        PlayEffectButton.Content = "Pause";
+        _playTimer.Interval = PlaybackSpeed.Interval(_settings.PlaybackFps);
+        _playTimer.Start();
+        StatusText.Text = $"{_current.Name} — playing {_current.FrameCount} frames at {_settings.PlaybackFps} fps.";
+    }
+
+    private void BindPlaybackSpeed()
+    {
+        int fps = PlaybackSpeed.ClampFps(_settings.PlaybackFps);
+        _settings.PlaybackFps = fps;
+        _syncingSpeed = true;
+        if (PlaybackSpeedBox is not null)
+        {
+            PlaybackSpeedBox.ItemsSource = PlaybackSpeed.FpsChoices;
+            PlaybackSpeedBox.SelectedItem = fps;
+        }
+
+        _syncingSpeed = false;
+        _playTimer.Interval = PlaybackSpeed.Interval(fps);
+    }
+
+    private void PlaybackSpeedChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSpeed || PlaybackSpeedBox?.SelectedItem is not int fps)
+        {
+            return;
+        }
+
+        fps = PlaybackSpeed.ClampFps(fps);
+        _settings.PlaybackFps = fps;
+        _settings.Save();
+        _playTimer.Interval = PlaybackSpeed.Interval(fps);
+        if (StatusText is not null)
+        {
+            StatusText.Text = $"Playback speed {fps} fps.";
+        }
+    }
+
+    private void AdvancePlay()
+    {
+        if (!_playing || _current is null || FrameSlider is null)
+        {
+            StopPlay();
+            return;
+        }
+
+        int next = (int)FrameSlider.Value + 1;
+        if (next >= _current.FrameCount)
+        {
+            next = 0;
+        }
+
+        FrameSlider.Value = next;
+    }
+
+    private void StopPlay()
+    {
+        _playing = false;
+        _playTimer.Stop();
+        if (PlayEffectButton is not null)
+        {
+            PlayEffectButton.Content = "Play";
         }
     }
 

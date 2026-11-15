@@ -46,10 +46,21 @@ public static class PngWriter
             {
                 int si = src + x * 4;
                 int di = dest + 1 + x * 4;
-                raw[di] = bgra[si + 2];
-                raw[di + 1] = bgra[si + 1];
-                raw[di + 2] = bgra[si];
-                raw[di + 3] = bgra[si + 3];
+                byte a = bgra[si + 3];
+                if (a == 0)
+                {
+                    raw[di] = 0;
+                    raw[di + 1] = 0;
+                    raw[di + 2] = 0;
+                    raw[di + 3] = 0;
+                }
+                else
+                {
+                    raw[di] = bgra[si + 2];
+                    raw[di + 1] = bgra[si + 1];
+                    raw[di + 2] = bgra[si];
+                    raw[di + 3] = a;
+                }
             }
         }
 

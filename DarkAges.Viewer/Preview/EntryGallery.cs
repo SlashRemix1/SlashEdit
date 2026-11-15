@@ -9,6 +9,7 @@ using DarkAges.Formats.Imaging;
 using DarkAges.Formats.Maps;
 using DarkAges.Viewer.Imaging;
 using DarkAges.Viewer.Maps;
+using DarkAges.Formats.Unity;
 
 namespace DarkAges.Viewer.Preview;
 
@@ -148,22 +149,41 @@ public sealed class EntryGallery
             string? paletteOverride = _paletteOverride;
             WarpTable warps = _warps;
             int baseIndex = offset;
+            bool parallel = archive is not UnityBundleArchive;
             List<GalleryItem?> decoded = await Task.Run(() =>
             {
                 var items = new GalleryItem?[slice.Count];
                 int completed = 0;
-                Parallel.For(0, slice.Count, (i, state) =>
+                if (parallel)
                 {
-                    if (cancellationToken.IsCancellationRequested)
+                    Parallel.For(0, slice.Count, (i, state) =>
                     {
-                        state.Stop();
-                        return;
-                    }
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            state.Stop();
+                            return;
+                        }
 
-                    items[i] = DecodeThumb(
-                        archive, slice[i], cellW, cellH, tilesets, tilesetName, mapHint, tileset, floorOffset, paletteOverride, warps);
-                    progress?.Report(baseIndex + Interlocked.Increment(ref completed));
-                });
+                        items[i] = DecodeThumb(
+                            archive, slice[i], cellW, cellH, tilesets, tilesetName, mapHint, tileset, floorOffset, paletteOverride, warps);
+                        progress?.Report(baseIndex + Interlocked.Increment(ref completed));
+                    });
+                }
+                else
+                {
+                    for (int i = 0; i < slice.Count; i++)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        items[i] = DecodeThumb(
+                            archive, slice[i], cellW, cellH, tilesets, tilesetName, mapHint, tileset, floorOffset, paletteOverride, warps);
+                        progress?.Report(baseIndex + ++completed);
+                    }
+                }
+
                 return items.ToList();
             }).ConfigureAwait(true);
 
@@ -241,7 +261,8 @@ public sealed class EntryGallery
         string ext = entry.Extension.ToLowerInvariant();
         return ext is ".epf" or ".mpf" or ".spf" or ".hpf" or ".efa" or ".pcx" or ".bmp" or ".map"
             or ".hea" or ".jpf" or ".jpg" or ".jpeg" or ".png" or ".rgba" or ".bik"
-            or ".fnt" or ".lft" or ".upf";
+            or ".fnt" or ".lft" or ".upf"
+            or ".texture2d" or ".sprite" or ".cubemap" or ".rendertexture";
     }
 
     private static int PeekFrameCount(ArchiveEntry entry)
@@ -290,12 +311,21 @@ public sealed class EntryGallery
         try
         {
             PixelBuffer? pixels = null;
-            if (entry.Extension.Equals(".bik", StringComparison.OrdinalIgnoreCase))
+            bool unity = archive is UnityBundleArchive;
+            if (unity)
+            {
+                UnityObjectPreview preview = ((UnityBundleArchive)archive).Preview(entry, 0, animateSequence: false);
+                pixels = preview.Pixels;
+                if (!string.IsNullOrWhiteSpace(preview.ObjectName))
+                {
+                    entry.DisplayName = preview.ObjectName;
+                }
+            }
+            else if (entry.Extension.Equals(".bik", StringComparison.OrdinalIgnoreCase))
             {
                 return GalleryItem.Placeholder(archive, entry, cellWidth, cellHeight);
             }
-
-            if (entry.Extension.Equals(".map", StringComparison.OrdinalIgnoreCase))
+            else if (entry.Extension.Equals(".map", StringComparison.OrdinalIgnoreCase))
             {
                 if (tilesets.Count == 0)
                 {
@@ -338,18 +368,18 @@ public sealed class EntryGallery
             int declared = PeekFrameCount(entry);
             int logical = KhanPieces.TryParse(entry.Name, out _) ? KhanPieces.IdleDirection : 0;
             bool maps = entry.Extension.Equals(".map", StringComparison.OrdinalIgnoreCase);
-            bool caption = maps || FloorTiles.IsFloorName(entry) || LegendItems.IsItemGraphic(entry)
+            bool showCaption = unity || maps || FloorTiles.IsFloorName(entry) || LegendItems.IsItemGraphic(entry)
                 || entry.Extension.Equals(".rgba", StringComparison.OrdinalIgnoreCase);
             return new GalleryItem(
                 archive,
                 entry,
                 [image],
-                allFramesLoaded: declared <= 1 || maps,
+                allFramesLoaded: declared <= 1 || maps || unity,
                 logical,
                 declared,
                 cellWidth,
                 cellHeight,
-                showCaption: caption,
+                showCaption: showCaption,
                 paletteOverride: paletteOverride);
         }
         catch
