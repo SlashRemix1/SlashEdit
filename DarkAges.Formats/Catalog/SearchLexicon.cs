@@ -14,6 +14,8 @@ public static class SearchLexicon
     private static readonly Regex TokenSplit = new(@"[^\p{L}\p{N}+]+", RegexOptions.Compiled);
     private static readonly object Gate = new();
     private static Dictionary<string, string[]>? _map;
+    /// <summary>Korean synonym → preferred English, longest keys first for greedy translate.</summary>
+    private static List<KeyValuePair<string, string>>? _krToEn;
     private static string? _overridePath;
     private static DateTime _overrideStamp = DateTime.MinValue;
 
@@ -23,13 +25,27 @@ public static class SearchLexicon
     private static readonly Dictionary<string, string[]> FalseFriendPrefixes =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["검"] = ["검은", "검정", "검색", "검거", "검토", "검사지"],
+            ["검"] = ["검은", "검정", "검색", "검거", "검토", "검사지", "검투", "검사"],
             ["화"] = ["화살", "화면", "화요일", "화장", "화재"],
             ["성"] = ["성적", "성공", "성별", "성인", "성격"],
             ["독"] = ["독립", "독서", "독특"],
             ["불"] = ["불안", "불편", "불구", "불가", "불법"],
             ["금"] = ["금지", "금액", "금요일", "금방", "금속"],
             ["은"] = ["있는", "없는", "은은", "은근", "은행"],
+            ["알"] = ["알수없", "알려", "알림", "알수"],
+        };
+
+    /// <summary>
+    /// Trailing element suffixes on gear names (레더튜닉화, 어설픈연단검풍).
+    /// Kept out of the main lexicon so searching "wind" does not flood every 풍 item.
+    /// </summary>
+    private static readonly Dictionary<string, string> TrailingElements =
+        new(StringComparer.Ordinal)
+        {
+            ["풍"] = "Wind",
+            ["수"] = "Water",
+            ["화"] = "Fire",
+            ["토"] = "Earth",
         };
 
     public static int EntryCount
@@ -298,6 +314,182 @@ public static class SearchLexicon
         return null;
     }
 
+    /// <summary>
+    /// Best-effort English gloss for a Korean (or mixed) display name using the lexicon
+    /// in reverse — e.g. 루어스스카웃튜닉 → "Loures Scout Tunic".
+    /// Returns null when nothing could be translated.
+    /// </summary>
+    public static string? TranslateToEnglish(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        string source = text.Trim();
+        // Prefer the Hangul display name when label is "셔츠 → item001_96".
+        int arrow = source.IndexOf('→');
+        if (arrow < 0)
+        {
+            arrow = source.IndexOf("->", StringComparison.Ordinal);
+        }
+
+        if (arrow > 0)
+        {
+            source = source[..arrow].Trim();
+        }
+
+        int newline = source.IndexOfAny(['\r', '\n']);
+        if (newline > 0)
+        {
+            source = source[..newline].Trim();
+        }
+
+        if (!IsHangulHeavy(source))
+        {
+            return null;
+        }
+
+        EnsureLoaded();
+        IReadOnlyList<KeyValuePair<string, string>> map = KrToEn();
+        if (map.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        int i = 0;
+        int matchedChars = 0;
+        while (i < source.Length)
+        {
+            char c = source[i];
+            if (char.IsWhiteSpace(c) || c is '(' or ')' or '[' or ']' or '{' or '}' or '/' or '-' or '·' or '•')
+            {
+                i++;
+                continue;
+            }
+
+            string? bestKr = null;
+            string? bestEn = null;
+            foreach (KeyValuePair<string, string> kv in map)
+            {
+                if (kv.Key.Length == 0 || i + kv.Key.Length > source.Length)
+                {
+                    continue;
+                }
+
+                if (string.Compare(source, i, kv.Key, 0, kv.Key.Length, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    bestKr = kv.Key;
+                    bestEn = kv.Value;
+                    break; // map is longest-first
+                }
+            }
+
+            // Element suffix only when it consumes the end of the name (…검풍).
+            if (bestKr is null
+                && i == source.Length - 1
+                && TrailingElements.TryGetValue(source[i].ToString(), out string? element))
+            {
+                bestKr = source[i].ToString();
+                bestEn = element;
+            }
+
+            if (bestKr is not null && bestEn is not null)
+            {
+                parts.Add(TitleCaseEnglish(bestEn));
+                i += bestKr.Length;
+                matchedChars += bestKr.Length;
+                continue;
+            }
+
+            // Skip one unmatched Hangul / letter so the rest can still translate.
+            i++;
+        }
+
+        if (parts.Count == 0 || matchedChars == 0)
+        {
+            return null;
+        }
+
+        // Require covering most of the Hangul so a lone stem (검) does not become the gloss.
+        int hangulCount = source.Count(IsHangulSyllable);
+        if (hangulCount > 0 && matchedChars * 4 < hangulCount * 3)
+        {
+            return null;
+        }
+
+        string gloss = string.Join(' ', parts);
+        if (gloss.Equals(source, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return gloss;
+    }
+
+    private static IReadOnlyList<KeyValuePair<string, string>> KrToEn()
+    {
+        if (_krToEn is not null)
+        {
+            return _krToEn;
+        }
+
+        // Korean → (english, synonymIndex). Lower index = more canonical for that English key.
+        var best = new Dictionary<string, (string En, int Rank)>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, string[]> kv in _map!)
+        {
+            for (int i = 0; i < kv.Value.Length; i++)
+            {
+                string kr = kv.Value[i];
+                if (string.IsNullOrWhiteSpace(kr) || !IsHangulHeavy(kr))
+                {
+                    continue;
+                }
+
+                // Prefer the English key that lists this Korean earliest (튜닉 → tunic, not shirt).
+                if (!best.TryGetValue(kr, out (string En, int Rank) existing)
+                    || i < existing.Rank
+                    || (i == existing.Rank
+                        && string.Compare(kv.Key, existing.En, StringComparison.OrdinalIgnoreCase) < 0))
+                {
+                    best[kr] = (kv.Key, i);
+                }
+            }
+        }
+
+        _krToEn = best
+            .OrderByDescending(kv => kv.Key.Length)
+            .ThenBy(kv => kv.Value.Rank)
+            .ThenBy(kv => kv.Value.En, StringComparer.OrdinalIgnoreCase)
+            .Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value.En))
+            .ToList();
+        return _krToEn;
+    }
+
+    private static string TitleCaseEnglish(string english)
+    {
+        if (string.IsNullOrWhiteSpace(english))
+        {
+            return english;
+        }
+
+        // Multi-word keys are rare; still title-case each token.
+        string[] tokens = english.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            string t = tokens[i];
+            if (t.Length == 0)
+            {
+                continue;
+            }
+
+            tokens[i] = char.ToUpperInvariant(t[0]) + (t.Length > 1 ? t[1..].ToLowerInvariant() : "");
+        }
+
+        return string.Join(' ', tokens);
+    }
+
     private static bool ContainsTerm(string text, string term)
     {
         if (term.Length == 0)
@@ -403,6 +595,7 @@ public static class SearchLexicon
         lock (Gate)
         {
             _map = null;
+            _krToEn = null;
             _overridePath = null;
             _overrideStamp = DateTime.MinValue;
         }
@@ -519,6 +712,7 @@ public static class SearchLexicon
             }
 
             _map = map;
+            _krToEn = null;
             _overridePath = overrideFile;
             _overrideStamp = stamp;
         }

@@ -146,6 +146,20 @@ public sealed partial class UnityBundleArchive : IArchive
                     && _sequences.TryGetValue(group, out List<SpriteSeqFrame>? frames)
                     && frames.Count > 0)
                 {
+                    // item###_N / skill_N / UI icons are distinct assets — do not collapse
+                    // to frame 0 (that hid item007_204 from reverse-image search).
+                    if (LodRAssets.IsIconSpriteName(group)
+                        || LodRAssets.IsIconSpriteName(entry.DisplayName)
+                        || LodRAssets.IsIconAsset(SourcePath, group))
+                    {
+                        if (seen.Add(entry.Name))
+                        {
+                            result.Add(entry);
+                        }
+
+                        continue;
+                    }
+
                     if (!seen.Add(group))
                     {
                         continue;

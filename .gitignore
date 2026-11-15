@@ -2,6 +2,7 @@ bin/
 obj/
 _agent_out/
 _agent_out /
+_build_check/
 _mapeditor_src/
 _tmp_strings.ps1
 DarkAges.Formats.Tests/

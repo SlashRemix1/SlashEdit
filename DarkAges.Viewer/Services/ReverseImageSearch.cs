@@ -63,6 +63,7 @@ public static class ReverseImageSearch
         bool cluttered = prepared.IsCluttered;
         bool characterQuery = LooksLikeCharacterQuery(prepared) && !cluttered;
         bool scanItems = options.Items;
+        bool scanPlayers = options.Players;
         bool scanComposites = options.Composites;
         if (cluttered)
         {
@@ -83,12 +84,23 @@ public static class ReverseImageSearch
                 progress?.Report($"Cluttered scene ({prepared.Objects.Length} objects) — matching each region…");
             }
         }
-        else if (characterQuery && options.Items)
+        else if (characterQuery)
         {
             // Full character / costume shots should not run the inventory-icon pipeline —
             // body/gear shapes in that pass poison scores and yield empty item results.
-            scanItems = false;
-            progress?.Report("Query looks like a character — skipping Items (use Composites for costumes).");
+            if (options.Items)
+            {
+                scanItems = false;
+                progress?.Report("Query looks like a character — skipping Items (use Composites for costumes).");
+            }
+
+            // Raw gear layers duplicate Unity/khan composites and let tiny motion tips
+            // (8×11 axe heads, etc.) outrank the real coat/head/weapon.
+            if (options.Players && options.Composites)
+            {
+                scanPlayers = false;
+                progress?.Report("Query looks like a character — using Composites only (Gear layers skipped).");
+            }
         }
 
         var layerCandidates = new List<(CatalogEntry Catalog, ArchiveEntry Entry, IArchive Archive)>();
@@ -99,7 +111,7 @@ public static class ReverseImageSearch
                 break;
             }
 
-            if (!WantsRole(catalog.Role, options, scanItems))
+            if (!WantsRole(catalog.Role, options, scanItems, scanPlayers))
             {
                 continue;
             }
@@ -406,8 +418,16 @@ public static class ReverseImageSearch
 
         // Full-character composites: keep the best coat / head / weapon / … separately.
         // Otherwise one strong weapon floods the list and the costume pieces disappear.
+        // Skip that when an inventory icon clearly wins (zoomed item007_204 @ 95%, etc.).
+        float bestItemScore = ranked
+            .Where(h => !h.IsComposite && h.Catalog.Role == ArchiveRole.Items)
+            .Select(h => h.Score)
+            .DefaultIfEmpty(0f)
+            .Max();
+        float bestAny = ranked[0].Score;
+        bool strongItemHit = bestItemScore >= 0.75f && bestItemScore + 0.05f >= bestAny;
         bool compositeHeavy = ranked.Count(h => h.IsComposite) >= 8;
-        if (compositeHeavy || characterQuery)
+        if (!strongItemHit && (compositeHeavy || characterQuery))
         {
             List<ImageMatchHit> diverse = DiversifyCompositeSlots(ranked, Math.Max(options.MaxHits, 40));
             if (diverse.Count > 0)
@@ -585,11 +605,15 @@ public static class ReverseImageSearch
         return "other";
     }
 
-    private static bool WantsRole(ArchiveRole role, ReverseImageSearchOptions options, bool scanItems) =>
+    private static bool WantsRole(
+        ArchiveRole role,
+        ReverseImageSearchOptions options,
+        bool scanItems,
+        bool scanPlayers) =>
         role switch
         {
             ArchiveRole.Items => scanItems,
-            ArchiveRole.PlayerSprites => options.Players,
+            ArchiveRole.PlayerSprites => scanPlayers,
             ArchiveRole.Ui => options.Ui,
             ArchiveRole.Mobs => options.Mobs,
             ArchiveRole.Effects => options.Effects,
@@ -708,19 +732,43 @@ public static class ReverseImageSearch
     private static bool LooksLikeCharacterQuery(ImageMatcher.QueryImage query)
     {
         PixelBuffer px = query.Pixels;
-        if (px.Width < 48 || px.Height < 48)
+        if (px.Width < 40 || px.Height < 40)
         {
             return false;
         }
 
-        // Inventory icons are usually square-ish; characters are taller.
+        // Zoomed viewer icons / single punched islands (gloves, boots, swords) are tall
+        // but must keep Items enabled — otherwise Find-from-image never sees item###_N.
+        if (query.Objects.Length <= 1)
+        {
+            int maxEdge = Math.Max(px.Width, px.Height);
+            if (query.Objects.Length == 1)
+            {
+                PixelBuffer island = query.Objects[0].Pixels;
+                maxEdge = Math.Max(island.Width, island.Height);
+            }
+
+            // Paper-doll / costume crops are usually larger than a lone inventory tile.
+            if (maxEdge < 180)
+            {
+                return false;
+            }
+        }
+
+        // Inventory icons are usually square-ish; characters / costumes are taller.
+        // After background punch, a 100×85 chicken shot often becomes ~49×61.
         float aspect = px.Height / (float)Math.Max(1, px.Width);
-        if (query.IsScreenshot && aspect >= 1.15f)
+        if (query.IsScreenshot && aspect >= 1.10f)
         {
             return true;
         }
 
-        if (!query.IsScreenshot && aspect >= 1.25f && px.Height >= 80)
+        if (aspect >= 1.15f && px.Height >= 56)
+        {
+            return true;
+        }
+
+        if (aspect >= 1.05f && px.Height >= 48 && px.Width * px.Height >= 40 * 48)
         {
             return true;
         }
@@ -737,6 +785,32 @@ public static class ReverseImageSearch
         if (query.IsScreenshot || query.IsCluttered)
         {
             return true;
+        }
+
+        // Tiny motion tips / debris (e.g. 11×8 axe head) get inflated NCC scores against
+        // a full costume crop and crowd out the real coat / head / weapon.
+        int sw = sprite.Width;
+        int sh = sprite.Height;
+        int area = sw * sh;
+        int qArea = Math.Max(1, query.Pixels.Width * query.Pixels.Height);
+        if (area < 100 || Math.Max(sw, sh) < 14)
+        {
+            return false;
+        }
+
+        // Do NOT reject normal inventory tiles (≈30×30) against a zoomed viewer crop
+        // (≈200×200). The old area×20 gate hid item007_204 at 95% NCC. Only drop
+        // sprites that are truly tiny relative to a large costume / scene query.
+        float qAspect = query.Pixels.Height / (float)Math.Max(1, query.Pixels.Width);
+        bool likelyCostume = qAspect >= 1.15f && query.Pixels.Height >= 80;
+        if (likelyCostume && area * 40 < qArea)
+        {
+            return false;
+        }
+
+        if (!likelyCostume && area * 100 < qArea)
+        {
+            return false;
         }
 
         ulong avg = ImageMatcher.AverageHash(sprite);

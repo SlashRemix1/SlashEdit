@@ -74,7 +74,10 @@ public sealed class ContentSearchIndex
             return new ContentSearchIndex();
         }
 
+        progress?.Report((0, Math.Max(1, total), "Fingerprint"));
         string fingerprint = Fingerprint(work);
+        ct.ThrowIfCancellationRequested();
+        progress?.Report((0, Math.Max(1, total), "Cache"));
         if (TryLoadCache(fingerprint, catalogs, out ContentSearchIndex? cached) && cached is not null)
         {
             progress?.Report((total, total, "Cached"));
@@ -88,7 +91,8 @@ public sealed class ContentSearchIndex
         var options = new ParallelOptions
         {
             CancellationToken = ct,
-            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 6)
+            // Disk + OneDrive hate wide parallel opens (UnauthorizedAccess / sharing storms).
+            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 3)
         };
 
         try
@@ -115,9 +119,9 @@ public sealed class ContentSearchIndex
                         }
                     }
                 }
-                catch
+                catch (Exception)
                 {
-                    // skip corrupt / locked table
+                    // skip corrupt / locked / ACL-denied table
                 }
 
                 int n = Interlocked.Increment(ref done);
@@ -133,6 +137,7 @@ public sealed class ContentSearchIndex
         index._rows.AddRange(bag);
         if (!ct.IsCancellationRequested)
         {
+            progress?.Report((total, Math.Max(1, total), "Saving cache"));
             TrySaveCache(fingerprint, index);
             progress?.Report((total, total, "Done"));
         }
@@ -286,11 +291,6 @@ public sealed class ContentSearchIndex
         var hits = new List<ContentSearchHit>();
         foreach (IndexedRow row in _rows)
         {
-            if (hits.Count >= limit * 3)
-            {
-                break;
-            }
-
             if (!SearchLexicon.Matches(row.SearchText, q))
             {
                 continue;
@@ -306,16 +306,116 @@ public sealed class ContentSearchIndex
                 TableFile = row.TableFile,
                 MatchedText = matched,
                 TableCatalog = row.Catalog,
-                PrefabOrIcon = FirstField(row.Fields, "PrefabName", "UIIconName", "Name", "ID"),
+                // Item.bin uses TileNumber → item###_frame; skills/effects use PrefabName / UIIconName.
+                PrefabOrIcon = FirstField(
+                    row.Fields,
+                    "PrefabName",
+                    "UIIconName",
+                    "TileNumber",
+                    "Name",
+                    "ID"),
                 Fields = row.Fields
             });
         }
 
-        return hits
+        List<ContentSearchHit> ranked = hits
             .OrderByDescending(h => Score(h, q))
             .ThenBy(h => h.Label, StringComparer.OrdinalIgnoreCase)
-            .Take(limit)
             .ToList();
+        return DiversifyByTable(ranked, Math.Max(1, limit));
+    }
+
+    /// <summary>
+    /// Prefer Item.bin / visual tables so lexicon hits like "shirt" / "sword" surface
+    /// inventory rows before SkillSpellDesc / QuestStep text noise.
+    /// </summary>
+    private static List<ContentSearchHit> DiversifyByTable(List<ContentSearchHit> ranked, int limit)
+    {
+        if (ranked.Count <= limit)
+        {
+            return ranked;
+        }
+
+        var byTable = new Dictionary<string, Queue<ContentSearchHit>>(StringComparer.OrdinalIgnoreCase);
+        foreach (ContentSearchHit hit in ranked)
+        {
+            string key = Path.GetFileNameWithoutExtension(hit.TableFile);
+            if (!byTable.TryGetValue(key, out Queue<ContentSearchHit>? q))
+            {
+                byTable[key] = q = new Queue<ContentSearchHit>();
+            }
+
+            q.Enqueue(hit);
+        }
+
+        string[] visualFirst =
+        [
+            "Item", "ItemDescription", "ItemHelp", "Monster", "Effect", "EFA",
+            "Skills", "Spells", "Emblem", "Emot"
+        ];
+        var result = new List<ContentSearchHit>(limit);
+
+        // Reserve ~half the slots for tables that usually bind to sprites.
+        int visualBudget = Math.Max(limit / 2, Math.Min(limit, 40));
+        foreach (string name in visualFirst)
+        {
+            if (!byTable.TryGetValue(name, out Queue<ContentSearchHit>? q))
+            {
+                continue;
+            }
+
+            while (q.Count > 0 && result.Count < visualBudget)
+            {
+                result.Add(q.Dequeue());
+            }
+
+            if (result.Count >= visualBudget)
+            {
+                break;
+            }
+        }
+
+        string[] priority =
+        [
+            "Item", "ItemDescription", "ItemHelp", "Monster", "Effect", "EFA",
+            "Skills", "Spells", "SkillSpellDesc", "Emblem", "Emot"
+        ];
+        var queues = new List<Queue<ContentSearchHit>>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in priority)
+        {
+            if (byTable.TryGetValue(name, out Queue<ContentSearchHit>? q) && q.Count > 0)
+            {
+                queues.Add(q);
+                seen.Add(name);
+            }
+        }
+
+        foreach ((string name, Queue<ContentSearchHit> q) in byTable.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (seen.Add(name) && q.Count > 0)
+            {
+                queues.Add(q);
+            }
+        }
+
+        bool progressed = true;
+        while (result.Count < limit && progressed)
+        {
+            progressed = false;
+            foreach (Queue<ContentSearchHit> q in queues)
+            {
+                if (q.Count == 0 || result.Count >= limit)
+                {
+                    continue;
+                }
+
+                result.Add(q.Dequeue());
+                progressed = true;
+            }
+        }
+
+        return result;
     }
 
     private static int Score(ContentSearchHit hit, string query)
@@ -348,6 +448,32 @@ public sealed class ContentSearchIndex
             score += 10;
         }
 
+        // Prefer rows that can bind to an inventory / prefab sprite.
+        string table = Path.GetFileNameWithoutExtension(hit.TableFile);
+        if (table.Equals("Item", StringComparison.OrdinalIgnoreCase)
+            && hit.Fields.ContainsKey("TileNumber"))
+        {
+            score += 80;
+        }
+        else if (table.StartsWith("Item", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 40;
+        }
+
+        if (!string.IsNullOrWhiteSpace(hit.PrefabOrIcon)
+            && (hit.Fields.ContainsKey("PrefabName") || hit.Fields.ContainsKey("UIIconName")))
+        {
+            score += 25;
+        }
+
+        // Skill books / spell tomes match weapon stems (검투술…) but are not the gear itself.
+        if (hit.Fields.TryGetValue("DisplayName", out string? display)
+            && (display.Contains("기술서", StringComparison.Ordinal)
+                || display.Contains("마법서", StringComparison.Ordinal)))
+        {
+            score -= 60;
+        }
+
         return score;
     }
 
@@ -378,11 +504,20 @@ public sealed class ContentSearchIndex
         return (start > 0 ? "…" : "") + slice + (end < text.Length ? "…" : "");
     }
 
-    private static bool IsTableCatalog(CatalogEntry catalog) =>
-        catalog.IsFolder
-            && (catalog.DisplayName.Equals("Tables", StringComparison.OrdinalIgnoreCase)
-                || Path.GetFileName(catalog.SourcePath).Equals("Table", StringComparison.OrdinalIgnoreCase)
-                || catalog.Variant == "LoD R" && catalog.Role == ArchiveRole.Metadata);
+    private static bool IsTableCatalog(CatalogEntry catalog)
+    {
+        if (!catalog.IsFolder)
+        {
+            return false;
+        }
+
+        // Only the LoD R / classic Table folder — not metafile or other Metadata packs.
+        string leaf = Path.GetFileName(
+            catalog.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return leaf.Equals("Table", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("Tables", StringComparison.OrdinalIgnoreCase)
+            || catalog.DisplayName.Equals("Tables", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsSearchableTableFile(string fileName)
     {
@@ -398,6 +533,7 @@ public sealed class ContentSearchIndex
         || header.Equals("Description", StringComparison.OrdinalIgnoreCase)
         || header.Equals("ColorHexCode", StringComparison.OrdinalIgnoreCase)
         || header.Equals("UIIconName", StringComparison.OrdinalIgnoreCase)
+        || header.Equals("TileNumber", StringComparison.OrdinalIgnoreCase)
         || header.Equals("UIDescription", StringComparison.OrdinalIgnoreCase)
         || header.Equals("Key", StringComparison.OrdinalIgnoreCase)
         || header.Equals("AnimationState", StringComparison.OrdinalIgnoreCase)
@@ -413,21 +549,28 @@ public sealed class ContentSearchIndex
     {
         try
         {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
             using var fs = new FileStream(
                 path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
-            using var ms = new MemoryStream();
-            fs.CopyTo(ms);
-            return ms.ToArray();
+            if (fs.Length <= 0 || fs.Length > 64 * 1024 * 1024)
+            {
+                return null;
+            }
+
+            var data = new byte[fs.Length];
+            fs.ReadExactly(data);
+            return data;
         }
-        catch (IOException)
+        catch (Exception)
         {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
+            // IO / ACL / OneDrive placeholder — skip; avoid first-chance spam loops where possible.
             return null;
         }
     }
@@ -446,11 +589,7 @@ public sealed class ContentSearchIndex
             stream.CopyTo(ms);
             return ms.ToArray();
         }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception)
         {
             return null;
         }
@@ -473,9 +612,10 @@ public sealed class ContentSearchIndex
         return Convert.ToHexString(hash);
     }
 
+    // Local (not Roaming) — avoids profile/OneDrive sync locking a multi‑MB JSON cache mid-read.
     private static string CachePath =>
         Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SlashEdit",
             "content-search-index.json");
 
@@ -490,10 +630,29 @@ public sealed class ContentSearchIndex
             string path = CachePath;
             if (!File.Exists(path))
             {
-                return false;
+                // Migrate once from the old Roaming path if present.
+                string legacy = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "SlashEdit",
+                    "content-search-index.json");
+                if (File.Exists(legacy))
+                {
+                    path = legacy;
+                }
+                else
+                {
+                    return false;
+                }
             }
 
-            CacheFile? file = JsonSerializer.Deserialize<CacheFile>(File.ReadAllText(path), JsonOptions);
+            byte[] bytes;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                bytes = new byte[fs.Length];
+                fs.ReadExactly(bytes);
+            }
+
+            CacheFile? file = JsonSerializer.Deserialize<CacheFile>(bytes, JsonOptions);
             if (file is null
                 || file.Version != CacheVersion
                 || !string.Equals(file.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase)
@@ -558,7 +717,17 @@ public sealed class ContentSearchIndex
                 }).ToList()
             };
 
-            File.WriteAllText(path, JsonSerializer.Serialize(file, JsonOptions));
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(file, JsonOptions));
+            File.Copy(tmp, path, overwrite: true);
+            try
+            {
+                File.Delete(tmp);
+            }
+            catch
+            {
+                // best-effort
+            }
         }
         catch
         {

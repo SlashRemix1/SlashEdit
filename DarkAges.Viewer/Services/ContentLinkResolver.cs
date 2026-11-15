@@ -7,6 +7,9 @@ namespace DarkAges.Viewer.Services;
 
 public static class ContentLinkResolver
 {
+    private static readonly Dictionary<string, IReadOnlyList<(int Sheet, int FrameCount)>> ItemLayouts =
+        new(StringComparer.OrdinalIgnoreCase);
+
     public static bool TryResolveVisual(
         ContentSearchHit hit,
         IReadOnlyList<CatalogEntryView> catalogs,
@@ -17,6 +20,15 @@ public static class ContentLinkResolver
     {
         catalog = null!;
         entry = null!;
+
+        // Item.bin → inventory icon via TileNumber (not Korean DisplayName).
+        if (IsItemTable(hit.TableFile)
+            && TryTileNumber(hit, out int tile)
+            && TryResolveItemTile(tile, catalogs, cache, openArchives, out catalog, out entry))
+        {
+            return true;
+        }
+
         string? key = hit.PrefabOrIcon;
         if (string.IsNullOrWhiteSpace(key))
         {
@@ -29,6 +41,12 @@ public static class ContentLinkResolver
         }
 
         key = key.Trim();
+        // Numeric-only keys on item tables are TileNumbers (already tried above).
+        if (IsItemTable(hit.TableFile) && int.TryParse(key, out _))
+        {
+            return false;
+        }
+
         string prefix = AssetPrefix(key);
         foreach (CatalogEntryView candidate in RankCatalogs(catalogs, prefix, hit.TableFile))
         {
@@ -142,6 +160,94 @@ public static class ContentLinkResolver
         out CatalogEntryView catalog,
         out ArchiveEntry entry) =>
         TryResolveClassicItem(graphicId, catalogs, cache, out catalog, out entry, openArchives: false);
+
+    private static bool TryResolveItemTile(
+        int tileNumber,
+        IReadOnlyList<CatalogEntryView> catalogs,
+        ArchiveCache cache,
+        bool openArchives,
+        out CatalogEntryView catalog,
+        out ArchiveEntry entry)
+    {
+        catalog = null!;
+        entry = null!;
+        foreach (CatalogEntryView candidate in catalogs.Where(c => c.Role == ArchiveRole.Items))
+        {
+            if (!UnityBundleArchive.LooksLike(candidate.SourcePath))
+            {
+                continue;
+            }
+
+            if (!openArchives && !cache.Contains(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (cache.Get(candidate) is not UnityBundleArchive unity)
+                {
+                    continue;
+                }
+
+                if (openArchives && !unity.SpriteIndexReady)
+                {
+                    unity.EnsureSpriteIndex();
+                }
+
+                IReadOnlyList<(int Sheet, int FrameCount)> layout = ItemLayoutFor(unity);
+                ArchiveEntry? match = LodRItemIcons.FindSprite(unity, layout, tileNumber);
+                if (match is not null)
+                {
+                    catalog = candidate;
+                    entry = match;
+                    return true;
+                }
+            }
+            catch
+            {
+                // next items bundle
+            }
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<(int Sheet, int FrameCount)> ItemLayoutFor(UnityBundleArchive unity)
+    {
+        lock (ItemLayouts)
+        {
+            if (ItemLayouts.TryGetValue(unity.SourcePath, out IReadOnlyList<(int, int)>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<(int, int)> layout = LodRItemIcons.SheetLayout(unity);
+            ItemLayouts[unity.SourcePath] = layout;
+            return layout;
+        }
+    }
+
+    private static bool IsItemTable(string tableFile)
+    {
+        string stem = Path.GetFileNameWithoutExtension(tableFile);
+        return stem.Equals("Item", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("ItemDescription", StringComparison.OrdinalIgnoreCase)
+            || stem.Equals("ItemHelp", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryTileNumber(ContentSearchHit hit, out int tile)
+    {
+        tile = 0;
+        if (hit.Fields.TryGetValue("TileNumber", out string? raw)
+            && int.TryParse(raw.Trim(), out tile)
+            && tile >= 0)
+        {
+            return true;
+        }
+
+        return false;
+    }
 
     private static ArchiveEntry? FindSprite(UnityBundleArchive unity, string key)
     {

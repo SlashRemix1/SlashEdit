@@ -8,10 +8,10 @@ namespace DarkAges.Viewer.Imaging;
 public static class ViewZoom
 {
     public const double Min = 0.25;
-    public const double Max = 4.0;
+    public const double Max = 8.0;
 
     public static readonly string[] Presets =
-        ["25%", "50%", "75%", "100%", "150%", "200%", "300%", "400%"];
+        ["25%", "50%", "75%", "100%", "150%", "200%", "300%", "400%", "600%", "800%"];
 
     public static double Clamp(double zoom) =>
         Math.Clamp(Math.Round(zoom * 100.0) / 100.0, Min, Max);

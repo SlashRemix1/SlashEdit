@@ -11,14 +11,40 @@ public sealed class ItemNameIndex
     public int NamedSpriteCount => _names.Count;
     public int EncyclopediaCount => _encyclopedia.Count;
 
-    public static ItemNameIndex Load(IEnumerable<IArchive> archives)
+    public static ItemNameIndex Load(IEnumerable<IArchive> archives) =>
+        Load(archives, progress: null, ct: default);
+
+    public static ItemNameIndex Load(
+        IEnumerable<IArchive> archives,
+        IProgress<(int Done, int Total, string Name)>? progress,
+        CancellationToken ct = default)
     {
+        var list = archives as IList<IArchive> ?? archives.ToList();
         var index = new ItemNameIndex();
-        foreach (IArchive archive in archives)
+        int total = Math.Max(1, list.Count);
+        for (int i = 0; i < list.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
+            IArchive archive = list[i];
+            string label = Path.GetFileName(archive.SourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                label = archive.DisplayName;
+            }
+
+            progress?.Report((i, total, label));
             foreach (ArchiveEntry entry in archive.Entries)
             {
-                string stem = Path.GetFileName(entry.Name);
+                ct.ThrowIfCancellationRequested();
+                string stem = Path.GetFileNameWithoutExtension(entry.Name);
+                // Name gate first — MetaFile.LooksLike opens every file (very slow on fat meta folders).
+                bool itemDesc = stem.StartsWith("ItemDesc", StringComparison.OrdinalIgnoreCase);
+                bool itemInfo = stem.StartsWith("ItemInfo", StringComparison.OrdinalIgnoreCase);
+                if (!itemDesc && !itemInfo)
+                {
+                    continue;
+                }
+
                 try
                 {
                     if (!MetaFile.LooksLike(entry))
@@ -26,11 +52,11 @@ public sealed class ItemNameIndex
                         continue;
                     }
 
-                    if (stem.StartsWith("ItemDesc", StringComparison.OrdinalIgnoreCase))
+                    if (itemDesc)
                     {
                         index.AddDescriptions(MetaFile.Load(entry, archive.SourcePath));
                     }
-                    else if (stem.StartsWith("ItemInfo", StringComparison.OrdinalIgnoreCase))
+                    else
                     {
                         index.AddEncyclopedia(MetaFile.Load(entry, archive.SourcePath));
                     }
@@ -40,6 +66,8 @@ public sealed class ItemNameIndex
                     // skip unreadable meta
                 }
             }
+
+            progress?.Report((i + 1, total, label));
         }
 
         return index;
