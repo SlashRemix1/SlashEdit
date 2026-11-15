@@ -63,6 +63,56 @@ public sealed class ItemNameIndex
         return !string.IsNullOrWhiteSpace(name) && _encyclopedia.TryGetValue(name.Trim(), out row);
     }
 
+    public IReadOnlyList<ItemTextHit> SearchText(string query, int limit = 80)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
+        string q = query.Trim();
+        var hits = new List<ItemTextHit>();
+        foreach ((int id, List<string> names) in _names)
+        {
+            if (hits.Count >= limit)
+            {
+                break;
+            }
+
+            string? name = names.FirstOrDefault(n => SearchLexicon.Matches(n, q));
+            string desc = Description(id);
+            bool descHit = SearchLexicon.Matches(desc, q);
+            if (name is null && !descHit)
+            {
+                continue;
+            }
+
+            hits.Add(new ItemTextHit(id, name ?? names[0], descHit ? desc : ""));
+        }
+
+        foreach ((string name, EncyclopediaRow row) in _encyclopedia)
+        {
+            if (hits.Count >= limit)
+            {
+                break;
+            }
+
+            if (SearchLexicon.Matches(name, q)
+                || SearchLexicon.Matches(row.Description, q)
+                || SearchLexicon.Matches(row.Category, q))
+            {
+                if (hits.Any(h => h.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                hits.Add(new ItemTextHit(0, name, row.Description));
+            }
+        }
+
+        return hits;
+    }
+
     private void AddDescriptions(MetaFile meta)
     {
         foreach (MetaNode node in meta.Nodes)
@@ -132,3 +182,5 @@ public readonly record struct EncyclopediaRow(
     string Weight,
     string Category,
     string Description);
+
+public readonly record struct ItemTextHit(int GraphicId, string Name, string Description);

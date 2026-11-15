@@ -1,0 +1,90 @@
+<Window x:Class="DarkAges.Viewer.ReverseImageSearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Find from image"
+        Height="640" Width="820"
+        MinHeight="480" MinWidth="640"
+        Background="#1B1D23"
+        AllowDrop="True"
+        Drop="WindowDropped"
+        DragOver="WindowDragOver">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="ShowGroupButton" Content="Show group in viewer" Width="150" Click="ShowGroupClicked" IsEnabled="False"/>
+            <Button x:Name="GoButton" Content="Go to selected" Width="120" Margin="8,0,0,0" Click="GoClicked" IsEnabled="False"/>
+            <Button Content="Close" Width="90" Margin="8,0,0,0" IsCancel="True" Click="CloseClicked"/>
+        </StackPanel>
+        <TextBlock x:Name="StatusLabel" DockPanel.Dock="Bottom" Foreground="#9AA0AE" Margin="0,8,0,0" TextWrapping="Wrap"
+                   Text="Drop a PNG/JPG. Cluttered bag/inventory shots are split into object crops automatically. Composites for full characters; Items for icons."/>
+        <ProgressBar x:Name="ProgressBar" DockPanel.Dock="Bottom" Height="8" Margin="0,8,0,0" IsIndeterminate="False"/>
+
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right" Content="Browse…" Width="90" Click="BrowseClicked"/>
+            <Button DockPanel.Dock="Right" x:Name="SearchButton" Content="Search" Width="90" Margin="0,0,8,0" Click="SearchClicked" IsDefault="True"/>
+            <TextBlock Text="Query image" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="PathBox" Margin="8,0,8,0" IsReadOnly="True"/>
+        </DockPanel>
+
+        <GroupBox Header="Scan" DockPanel.Dock="Top" Margin="0,0,0,10">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <CheckBox x:Name="ItemsBox" Content="Items" IsChecked="True" Margin="0,4,16,4"/>
+                    <CheckBox x:Name="CompositesBox" Content="Composites" IsChecked="True" Margin="0,4,16,4"
+                              ToolTip="Paper-dolls: body + each idle gear piece. Use for full character / costume screenshots."/>
+                    <CheckBox x:Name="PlayersBox" Content="Gear layers" IsChecked="False" Margin="0,4,16,4"
+                              ToolTip="Raw idle gear EPFs (not assembled). Usually leave off when Composites is on."/>
+                    <CheckBox x:Name="UiBox" Content="UI / icons" IsChecked="True" Margin="0,4,16,4"/>
+                    <CheckBox x:Name="MobsBox" Content="Mobs" Margin="0,4,16,4"/>
+                    <CheckBox x:Name="EffectsBox" Content="Effects" Margin="0,4,16,4"/>
+                </StackPanel>
+                <DockPanel Margin="0,4,0,0">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                        <TextBlock Text="Block size" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,8,0"
+                                   ToolTip="Screenshot search steps by this many pixels instead of every pixel. Larger = faster."/>
+                        <ComboBox x:Name="BlockBox" Width="120"
+                                  ToolTip="1 = densest/slowest. 8–10 = good speed. 16 = fastest/coarsest. Peaks are still refined pixel-accurate."/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="Min score" Foreground="#9AA0AE" VerticalAlignment="Center" Margin="0,0,8,0"
+                                   ToolTip="Minimum match strength (0–1). Example: 0.4 or 40%. Lower finds more; higher is stricter."/>
+                        <TextBox x:Name="ScoreBox" Width="72" Text="0.40" VerticalContentAlignment="Center"
+                                 ToolTip="Type a value from 0 to 1 (or 0–100 as percent). Default 0.40."/>
+                    </StackPanel>
+                </DockPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Background="#12141A" BorderBrush="#3A3F4B" BorderThickness="1" AllowDrop="True"
+                    Drop="WindowDropped" DragOver="WindowDragOver">
+                <Grid>
+                    <Image x:Name="QueryImage" Stretch="Uniform" Margin="8"/>
+                    <TextBlock x:Name="DropHint" Text="Drop image here" Foreground="#9AA0AE"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <ListBox x:Name="HitList" Grid.Column="2" Background="#12141A" BorderBrush="#3A3F4B"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     MouseDoubleClick="HitDoubleClicked"
+                     SelectionChanged="HitSelectionChanged">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <DockPanel Margin="4">
+                            <Image DockPanel.Dock="Left" Width="48" Height="48" Stretch="Uniform" Source="{Binding ThumbImage}" Margin="0,0,10,0"/>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding ScoreText}" Foreground="#6EA8FE" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Title}" Foreground="#E8E6E3" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Subtitle}" Foreground="#9AA0AE" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </DockPanel>
+</Window>

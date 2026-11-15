@@ -56,7 +56,14 @@ public sealed class Xor55FolderArchive : IArchive
 
     private static Stream OpenXor(string path)
     {
-        byte[] raw = File.ReadAllBytes(path);
+        using var fs = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var ms = new MemoryStream();
+        fs.CopyTo(ms);
+        byte[] raw = ms.ToArray();
         return new MemoryStream(Xor55Stream.Apply(raw), writable: false);
     }
 }

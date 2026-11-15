@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private readonly AssetWorkspace _workspace;
     private readonly ObservableCollection<CatalogEntry> _archives = new();
     private readonly DispatcherTimer _timer;
+    private DispatcherTimer? _filterDebounce;
     private ArchiveCache? _cache;
     private PreviewResult? _preview;
     private int _frame;
@@ -57,6 +58,12 @@ public partial class MainWindow : Window
     private WarpTable _warps = WarpTable.Empty;
     private readonly ServerWorld _serverWorld = new();
     private MapNameIndex _mapNames = new();
+    private ContentSearchIndex? _contentSearch;
+    private ItemNameIndex? _itemNames;
+    private int _contentSearchState; // 0=idle, 1=building, 2=ready
+    private bool _suppressSearchSuggest;
+    private bool _suppressSearchJump;
+    private bool _hangulFontHintDismissed;
     private readonly List<MapEditorWindow> _mapEditors = [];
     private WarpEditorWindow? _warpEditor;
     private ItemEditorWindow? _itemEditor;
@@ -352,21 +359,386 @@ public partial class MainWindow : Window
         ReloadWorkspace();
     }
 
-    private void SearchKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    private void SearchPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (e.Key == Key.Down && SearchSuggestPopup?.IsOpen == true && SearchSuggestList?.Items.Count > 0)
+        {
+            e.Handled = true;
+            SearchSuggestList.Focus();
+            SearchSuggestList.SelectedIndex = 0;
+            return;
+        }
+
         if (e.Key == Key.Enter)
         {
             e.Handled = true;
+            if (SearchSuggestPopup?.IsOpen == true && SearchSuggestList?.SelectedItem is LexiconEntry picked)
+            {
+                ApplyLexiconSearch(picked.English);
+                return;
+            }
+
+            HideSearchSuggest();
             RunSearch();
+            return;
         }
-        else if (e.Key == Key.Escape && SearchList is not null)
+
+        if (e.Key == Key.Escape)
         {
-            SearchList.Visibility = Visibility.Collapsed;
+            if (SearchSuggestPopup?.IsOpen == true)
+            {
+                e.Handled = true;
+                HideSearchSuggest();
+                return;
+            }
+
+            if (SearchResultsPanel?.Visibility == Visibility.Visible)
+            {
+                e.Handled = true;
+                CloseSearchResults();
+            }
         }
+    }
+
+    private void CloseSearchResultsClicked(object sender, RoutedEventArgs e) => CloseSearchResults();
+
+    private void CloseSearchResults()
+    {
+        if (SearchResultsPanel is not null)
+        {
+            SearchResultsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        if (SearchList is not null)
+        {
+            SearchList.ItemsSource = null;
+        }
+    }
+
+    private void SearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSearchSuggest
+            || !IsLoaded
+            || SearchBox is null
+            || SearchSuggestPopup is null
+            || SearchSuggestList is null)
+        {
+            return;
+        }
+
+        string prefix = CurrentSearchToken(SearchBox.Text, SearchBox.CaretIndex);
+        if (prefix.Length < 1)
+        {
+            HideSearchSuggest();
+            return;
+        }
+
+        IReadOnlyList<LexiconEntry> hits = SearchLexicon.Suggest(prefix, limit: 14);
+        if (hits.Count == 0)
+        {
+            HideSearchSuggest();
+            return;
+        }
+
+        // Don't suggest when the typed token is already an exact English key alone.
+        if (hits.Count == 1
+            && hits[0].English.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+            && prefix.Equals(SearchBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            HideSearchSuggest();
+            return;
+        }
+
+        SearchSuggestList.ItemsSource = hits;
+        SearchSuggestPopup.IsOpen = true;
+        SearchSuggestPopup.Width = Math.Max(SearchBox.ActualWidth, 260);
+    }
+
+    private void SearchLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        // Keep popup open when focus moves into the suggestion list.
+        if (e.NewFocus is DependencyObject next
+            && (ReferenceEquals(next, SearchSuggestList)
+                || IsDescendant(SearchSuggestList, next)))
+        {
+            return;
+        }
+
+        HideSearchSuggest();
+    }
+
+    private void SearchSuggestClicked(object sender, MouseButtonEventArgs e)
+    {
+        if (SearchSuggestList?.SelectedItem is LexiconEntry entry)
+        {
+            ApplyLexiconSearch(entry.English);
+        }
+        else if (e.OriginalSource is FrameworkElement fe && fe.DataContext is LexiconEntry clicked)
+        {
+            ApplyLexiconSearch(clicked.English);
+        }
+    }
+
+    private void SearchSuggestKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && SearchSuggestList?.SelectedItem is LexiconEntry entry)
+        {
+            e.Handled = true;
+            ApplyLexiconSearch(entry.English);
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            HideSearchSuggest();
+            SearchBox?.Focus();
+        }
+    }
+
+    private void LexiconToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (LexiconPanel is null || LexiconToggleButton is null)
+        {
+            return;
+        }
+
+        bool open = LexiconPanel.Visibility != Visibility.Visible;
+        LexiconPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLexiconToggleLabel(open);
+        if (open)
+        {
+            RefreshLexiconList();
+            LexiconFilterBox?.Focus();
+        }
+    }
+
+    private void EditLexiconClicked(object sender, RoutedEventArgs e)
+    {
+        var window = new LexiconEditorWindow { Owner = this };
+        window.ShowDialog();
+        if (window.Saved)
+        {
+            RefreshLexiconList();
+            if (LexiconPanel?.Visibility == Visibility.Visible)
+            {
+                UpdateLexiconToggleLabel(open: true);
+            }
+
+            StatusText.Text = SearchLexicon.HasUserOverride
+                ? $"Lexicon saved ({SearchLexicon.EntryCount} entries)."
+                : $"Lexicon restored to built-in ({SearchLexicon.EntryCount} entries).";
+        }
+    }
+
+    private void ResetLexiconClicked(object sender, RoutedEventArgs e)
+    {
+        MessageBoxResult confirm = System.Windows.MessageBox.Show(
+            this,
+            "Delete the user lexicon override and restore the built-in dictionary?",
+            "Reset lexicon",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            SearchLexicon.ResetToEmbedded();
+            RefreshLexiconList();
+            if (LexiconPanel?.Visibility == Visibility.Visible)
+            {
+                UpdateLexiconToggleLabel(open: true);
+            }
+
+            StatusText.Text = $"Lexicon restored to built-in ({SearchLexicon.EntryCount} entries).";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Lexicon reset failed: " + ex.Message;
+        }
+    }
+
+    private void UpdateLexiconToggleLabel(bool open)
+    {
+        if (LexiconToggleButton is null)
+        {
+            return;
+        }
+
+        LexiconToggleButton.Content = open
+            ? $"EN↔KR lexicon ({SearchLexicon.EntryCount}) ▲"
+            : "EN↔KR lexicon…";
+    }
+
+    private void LexiconFilterChanged(object sender, TextChangedEventArgs e) => RefreshLexiconList();
+
+    private void LexiconItemClicked(object sender, MouseButtonEventArgs e)
+    {
+        if (LexiconList?.SelectedItem is LexiconEntry entry)
+        {
+            ApplyLexiconSearch(entry.English);
+        }
+        else if (e.OriginalSource is FrameworkElement fe && fe.DataContext is LexiconEntry clicked)
+        {
+            ApplyLexiconSearch(clicked.English);
+        }
+    }
+
+    private void LexiconListKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && LexiconList?.SelectedItem is LexiconEntry entry)
+        {
+            e.Handled = true;
+            ApplyLexiconSearch(entry.English);
+        }
+    }
+
+    private void RefreshLexiconList()
+    {
+        if (LexiconList is null)
+        {
+            return;
+        }
+
+        string filter = LexiconFilterBox?.Text ?? "";
+        IReadOnlyList<LexiconEntry> entries = SearchLexicon.FilterEntries(filter, limit: 500);
+        LexiconList.ItemsSource = entries;
+        MaybeWarnMissingHangulFont(entries.Any(e =>
+            HangulSupport.ContainsHangul(e.Label) || e.Korean.Any(HangulSupport.ContainsHangul)));
+    }
+
+    private void MaybeWarnMissingHangulFont(bool contentHasHangul)
+    {
+        if (HangulFontBanner is null)
+        {
+            return;
+        }
+
+        if (!contentHasHangul || _hangulFontHintDismissed || HangulSupport.CanRenderHangul)
+        {
+            if (!contentHasHangul || HangulSupport.CanRenderHangul)
+            {
+                HangulFontBanner.Visibility = Visibility.Collapsed;
+            }
+
+            return;
+        }
+
+        HangulFontBannerText.Text = HangulSupport.InstallHint;
+        HangulFontBanner.Visibility = Visibility.Visible;
+    }
+
+    private void DismissHangulFontBanner(object sender, RoutedEventArgs e)
+    {
+        _hangulFontHintDismissed = true;
+        if (HangulFontBanner is not null)
+        {
+            HangulFontBanner.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void ApplyLexiconSearch(string english)
+    {
+        if (SearchBox is null || string.IsNullOrWhiteSpace(english))
+        {
+            return;
+        }
+
+        string text = SearchBox.Text ?? "";
+        int caret = SearchBox.CaretIndex;
+        if (caret < 0 || caret > text.Length)
+        {
+            caret = text.Length;
+        }
+
+        int start = caret;
+        while (start > 0 && !char.IsWhiteSpace(text[start - 1]) && text[start - 1] is not (',' or ';'))
+        {
+            start--;
+        }
+
+        int end = caret;
+        while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not (',' or ';'))
+        {
+            end++;
+        }
+
+        string replaced = text[..start] + english + text[end..];
+        _suppressSearchSuggest = true;
+        SearchBox.Text = replaced.Trim() == english ? english : replaced;
+        SearchBox.CaretIndex = SearchBox.Text.Length;
+        _suppressSearchSuggest = false;
+        HideSearchSuggest();
+        SearchBox.Focus();
+        RunSearch();
+    }
+
+    private void HideSearchSuggest()
+    {
+        if (SearchSuggestPopup is not null)
+        {
+            SearchSuggestPopup.IsOpen = false;
+        }
+
+        if (SearchSuggestList is not null)
+        {
+            SearchSuggestList.ItemsSource = null;
+        }
+    }
+
+    private static string CurrentSearchToken(string? text, int caret)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return "";
+        }
+
+        if (caret < 0 || caret > text.Length)
+        {
+            caret = text.Length;
+        }
+
+        int start = caret;
+        while (start > 0 && !char.IsWhiteSpace(text[start - 1]) && text[start - 1] is not (',' or ';'))
+        {
+            start--;
+        }
+
+        int end = caret;
+        while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not (',' or ';'))
+        {
+            end++;
+        }
+
+        return text[start..end].Trim();
+    }
+
+    private static bool IsDescendant(DependencyObject? root, DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, root))
+            {
+                return true;
+            }
+
+            node = System.Windows.Media.VisualTreeHelper.GetParent(node);
+        }
+
+        return false;
     }
 
     private void SearchResultKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            CloseSearchResults();
+            SearchBox?.Focus();
+            return;
+        }
+
         if (e.Key == Key.Enter)
         {
             e.Handled = true;
@@ -376,6 +748,16 @@ public partial class MainWindow : Window
 
     private void SearchResultActivated(object sender, MouseButtonEventArgs e) =>
         JumpToSearch(SearchList.SelectedItem as SearchHit);
+
+    private void SearchResultSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSearchJump || SearchList?.SelectedItem is not SearchHit hit)
+        {
+            return;
+        }
+
+        JumpToSearch(hit);
+    }
 
     private void RunSearch()
     {
@@ -387,15 +769,101 @@ public partial class MainWindow : Window
         string query = SearchBox.Text.Trim();
         if (string.IsNullOrEmpty(query))
         {
-            SearchList.Visibility = Visibility.Collapsed;
+            CloseSearchResults();
             return;
         }
 
+        EnsureContentSearchIndex();
         bool numeric = int.TryParse(query, out int id);
-        bool wantFloors = numeric
-            || query.Contains("floor", StringComparison.OrdinalIgnoreCase)
-            || query.Contains("tilea", StringComparison.OrdinalIgnoreCase);
         var hits = new List<SearchHit>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddHit(SearchHit hit)
+        {
+            string key = $"{hit.Archive.SourcePath}\0{hit.EntryName}\0{hit.FrameIndex}\0{hit.Label}";
+            if (seen.Add(key) && hits.Count < 200)
+            {
+                hits.Add(hit);
+            }
+        }
+
+        // 1) Description / table index (in-memory — safe on UI thread).
+        if (_contentSearch is { RowCount: > 0 })
+        {
+            var catalogs = _archives.OfType<CatalogEntryView>().ToList();
+            foreach (ContentSearchHit content in _contentSearch.Search(query, limit: 80))
+            {
+                CatalogEntryView? tableView = catalogs
+                    .FirstOrDefault(c => c.SourcePath.Equals(content.TableCatalog.SourcePath, StringComparison.OrdinalIgnoreCase));
+                if (tableView is null)
+                {
+                    continue;
+                }
+
+                string glossText = content.Label + "\n" + content.MatchedText;
+                if (ContentLinkResolver.TryResolveVisualCached(
+                        content, catalogs, _cache, out CatalogEntryView visualCat, out ArchiveEntry visualEntry))
+                {
+                    AddHit(new SearchHit(
+                        visualCat,
+                        visualEntry.Name,
+                        visualEntry.FrameIndex,
+                        WithEnglishGloss($"{content.Label} → {visualEntry.DisplayName}", glossText, query),
+                        content.MatchedText,
+                        tableView,
+                        content.TableFile));
+                }
+                else
+                {
+                    AddHit(new SearchHit(
+                        tableView,
+                        content.TableFile,
+                        null,
+                        WithEnglishGloss(content.Label, glossText, query),
+                        content.MatchedText));
+                }
+            }
+        }
+
+        // 2) Classic item names (already loaded).
+        if (_itemNames is not null)
+        {
+            var catalogs = _archives.OfType<CatalogEntryView>().ToList();
+            foreach (ItemTextHit item in _itemNames.SearchText(query, limit: 40))
+            {
+                string itemLabel = item.GraphicId > 0
+                    ? $"item {item.GraphicId:D4} / {item.Name}"
+                    : item.Name;
+                string itemGloss = item.Name + "\n" + (item.Description ?? "");
+                if (item.GraphicId > 0
+                    && ContentLinkResolver.TryResolveClassicItemCached(
+                        item.GraphicId, catalogs, _cache, out CatalogEntryView itemCat, out ArchiveEntry itemEntry))
+                {
+                    AddHit(new SearchHit(
+                        itemCat,
+                        itemEntry.Name,
+                        itemEntry.FrameIndex,
+                        WithEnglishGloss(itemLabel, itemGloss, query),
+                        string.IsNullOrWhiteSpace(item.Description) ? item.Name : item.Description));
+                }
+                else
+                {
+                    CatalogEntryView? metaCat = catalogs.FirstOrDefault(c => c.Role == ArchiveRole.Metadata);
+                    if (metaCat is not null)
+                    {
+                        AddHit(new SearchHit(
+                            metaCat,
+                            "iteminfo",
+                            null,
+                            WithEnglishGloss(item.Name, itemGloss, query),
+                            item.Description));
+                    }
+                }
+            }
+        }
+
+        // 3) Filenames — ONLY archives already open in the cache.
+        // Opening every LoD R Unity bundle on the UI thread froze the whole app.
         foreach (CatalogEntryView catalog in _archives)
         {
             if (hits.Count >= 200)
@@ -403,14 +871,29 @@ public partial class MainWindow : Window
                 break;
             }
 
+            if (SearchLexicon.Matches(catalog.Title, query)
+                || SearchLexicon.Matches(catalog.DisplayName, query))
+            {
+                // Catalog-level match without opening the file.
+                AddHit(new SearchHit(
+                    catalog,
+                    catalog.DisplayName,
+                    null,
+                    WithEnglishGloss(catalog.Title, catalog.Title + "\n" + catalog.DisplayName, query)));
+            }
+
+            if (!_cache.Contains(catalog))
+            {
+                continue;
+            }
+
             try
             {
                 IArchive archive = _cache.Get(catalog);
-                IEnumerable<ArchiveEntry> entries = IconSheets.Expand(archive.Entries);
-                if (wantFloors && catalog.Role == ArchiveRole.Floors)
-                {
-                    entries = FloorTiles.Expand(entries);
-                }
+                IEnumerable<ArchiveEntry> entries = archive is UnityBundleArchive
+                    ? LodRAssets.PreferSprites(archive.Entries)
+                    : archive.Entries;
+                entries = IconSheets.Expand(entries);
 
                 foreach (ArchiveEntry entry in entries)
                 {
@@ -419,49 +902,17 @@ public partial class MainWindow : Window
                         break;
                     }
 
-                    if (catalog.Role == ArchiveRole.Metadata && MetaFile.IsKnownName(entry.Name) && MetaFile.LooksLike(entry))
-                    {
-                        if (MatchesSearch(entry, catalog, query, numeric, id))
-                        {
-                            hits.Add(new SearchHit(catalog, entry.Name, entry.FrameIndex, $"{catalog.Title} / {entry.DisplayName}"));
-                        }
-
-                        if (MetaFile.IsMapTable(entry.Name))
-                        {
-                            continue;
-                        }
-
-                        try
-                        {
-                            MetaFile meta = MetaFile.Load(entry, archive.SourcePath);
-                            foreach (MetaNode node in meta.Nodes)
-                            {
-                                if (hits.Count >= 200)
-                                {
-                                    break;
-                                }
-
-                                if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-                                    || node.Properties.Any(p => p.Contains(query, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    hits.Add(new SearchHit(catalog, entry.Name, null, $"{entry.Name} / {node.Name}"));
-                                }
-                            }
-                        }
-                        catch
-                        {
-                            // skip unreadable meta
-                        }
-
-                        continue;
-                    }
-
                     if (!MatchesSearch(entry, catalog, query, numeric, id))
                     {
                         continue;
                     }
 
-                    hits.Add(new SearchHit(catalog, entry.Name, entry.FrameIndex, $"{catalog.Title} / {entry.DisplayName}"));
+                    string fileLabel = $"{catalog.Title} / {entry.DisplayName}";
+                    AddHit(new SearchHit(
+                        catalog,
+                        entry.Name,
+                        entry.FrameIndex,
+                        WithEnglishGloss(fileLabel, fileLabel, query)));
                 }
             }
             catch
@@ -470,21 +921,181 @@ public partial class MainWindow : Window
             }
         }
 
-        SearchList.ItemsSource = hits;
-        SearchList.Visibility = hits.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        StatusText.Text = hits.Count == 0 ? $"No matches for \"{query}\"." : $"{hits.Count} matches (double-click to open).";
+        _suppressSearchJump = true;
+        try
+        {
+            SearchList.ItemsSource = hits;
+            if (SearchResultsPanel is not null)
+            {
+                SearchResultsPanel.Visibility = hits.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (SearchResultsHeader is not null)
+            {
+                SearchResultsHeader.Text = hits.Count == 0 ? "Results" : $"Results ({hits.Count})";
+            }
+        }
+        finally
+        {
+            _suppressSearchJump = false;
+        }
+
+        string lexiconHint = SearchLexicon.ExpandTerms(query).Count > 1
+            ? " · EN↔KR lexicon"
+            : "";
+        StatusText.Text = hits.Count == 0
+            ? $"No matches for \"{query}\"."
+            : $"{hits.Count} matches (tables + open archives{lexiconHint} — click to open, ✕ to close).";
         if (hits.Count > 0)
         {
-            SearchList.SelectedIndex = 0;
+            _suppressSearchJump = true;
+            try
+            {
+                SearchList.SelectedIndex = 0;
+            }
+            finally
+            {
+                _suppressSearchJump = false;
+            }
+
             SearchList.Focus();
+            JumpToSearch(SearchList.SelectedItem as SearchHit);
+        }
+
+        bool hangulInHits = hits.Any(h =>
+            HangulSupport.ContainsHangul(h.Label) || HangulSupport.ContainsHangul(h.Snippet));
+        MaybeWarnMissingHangulFont(hangulInHits || HangulSupport.ContainsHangul(query));
+    }
+
+    private static string WithEnglishGloss(string label, string matchText, string query)
+    {
+        string? en = SearchLexicon.EnglishGloss(matchText, query);
+        if (string.IsNullOrWhiteSpace(en)
+            || label.Contains(en, StringComparison.OrdinalIgnoreCase))
+        {
+            return label;
+        }
+
+        return $"{label}  ·  {en}";
+    }
+
+    /// <summary>
+    /// Builds the description index once per session with a spinner + file/percent progress.
+    /// Work runs on a background thread so the UI keeps painting.
+    /// </summary>
+    private void EnsureContentSearchIndex()
+    {
+        if (_cache is null)
+        {
+            return;
+        }
+
+        // State 1 = already building (Busy.Pump can re-enter UI events).
+        bool wantTables = _contentSearch is null
+            && _contentSearchState == 0
+            && _archives.Any(c => c.Variant == "LoD R"
+                || Path.GetFileName(c.SourcePath).Equals("Table", StringComparison.OrdinalIgnoreCase));
+        bool wantItems = _itemNames is null
+            && _contentSearchState != 1
+            && _archives.Any(c => c.Role == ArchiveRole.Metadata && !UnityBundleArchive.LooksLike(c.SourcePath));
+
+        if (!wantTables && !wantItems)
+        {
+            return;
+        }
+
+        var catalogs = _archives.ToList();
+        ArchiveCache cache = _cache;
+
+        if (wantTables)
+        {
+            _contentSearchState = 1;
+            ContentSearchIndex? partial = null;
+            bool cancelled = false;
+            try
+            {
+                _contentSearch = Busy.Compute(
+                    this,
+                    "Indexing descriptions / tables…",
+                    (progress, ct) =>
+                    {
+                        partial = ContentSearchIndex.Build(catalogs, cache, progress, ct);
+                        if (ct.IsCancellationRequested)
+                        {
+                            throw new OperationCanceledException(ct);
+                        }
+
+                        return partial;
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+                _contentSearch = partial ?? new ContentSearchIndex();
+            }
+            catch
+            {
+                _contentSearch = partial ?? new ContentSearchIndex();
+            }
+
+            // Mark ready so Cancel does not re-trigger a scan on the next search.
+            _contentSearchState = 2;
+            if (StatusText is not null)
+            {
+                if (cancelled)
+                {
+                    StatusText.Text = _contentSearch.RowCount > 0
+                        ? $"Indexing cancelled ({_contentSearch.RowCount} rows kept). Search without full descriptions."
+                        : "Indexing cancelled. Search uses open archives only.";
+                }
+                else if (_contentSearch.RowCount > 0)
+                {
+                    StatusText.Text =
+                        $"Description index ready ({_contentSearch.RowCount} rows). Searching…";
+                }
+            }
+        }
+
+        if (wantItems && _itemNames is null)
+        {
+            try
+            {
+                _itemNames = Busy.Compute(
+                    this,
+                    "Indexing item names…",
+                    (progress, ct) =>
+                    {
+                        var meta = catalogs
+                            .Where(c => c.Role == ArchiveRole.Metadata && !UnityBundleArchive.LooksLike(c.SourcePath))
+                            .ToList();
+                        int total = Math.Max(1, meta.Count);
+                        progress?.Report((0, total, "iteminfo"));
+                        ct.ThrowIfCancellationRequested();
+                        ItemNameIndex loaded = ItemNameIndex.Load(meta.Select(c => cache.Get(c)));
+                        progress?.Report((total, total, "Done"));
+                        return loaded;
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                _itemNames = new ItemNameIndex();
+                if (StatusText is not null)
+                {
+                    StatusText.Text = "Item-name indexing cancelled.";
+                }
+            }
+            catch
+            {
+                _itemNames = new ItemNameIndex();
+            }
         }
     }
 
     private static bool MatchesSearch(ArchiveEntry entry, CatalogEntry catalog, string query, bool numeric, int id)
     {
-        if (entry.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || catalog.Title.Contains(query, StringComparison.OrdinalIgnoreCase))
+        if (SearchLexicon.Matches(entry.DisplayName, query)
+            || SearchLexicon.Matches(entry.Name, query)
+            || SearchLexicon.Matches(catalog.Title, query))
         {
             return true;
         }
@@ -511,7 +1122,10 @@ public partial class MainWindow : Window
         }
 
         JumpToEntry(hit.Archive, hit.EntryName, hit.FrameIndex, openGallery: false);
-        SearchList.Visibility = Visibility.Collapsed;
+        if (!string.IsNullOrWhiteSpace(hit.Snippet))
+        {
+            StatusText.Text = hit.Snippet;
+        }
     }
 
     private void FavoriteClicked(object sender, RoutedEventArgs e)
@@ -943,6 +1557,103 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 #endif
+
+    private void ReverseImageSearchClicked(object sender, RoutedEventArgs e)
+    {
+        if (_cache is null || _archives.Count == 0)
+        {
+            System.Windows.MessageBox.Show("Load a client folder first.");
+            return;
+        }
+
+        var window = new ReverseImageSearchWindow(
+            _cache,
+            _archives.ToList(),
+            ShowImageMatchGroup,
+            GoToImageMatch)
+        {
+            Owner = this
+        };
+        window.Show();
+    }
+
+    private void GoToImageMatch(ImageMatchHit hit)
+    {
+        CatalogEntryView? catalog = _archives.OfType<CatalogEntryView>()
+            .FirstOrDefault(c => c.SourcePath.Equals(hit.Catalog.SourcePath, StringComparison.OrdinalIgnoreCase)
+                && c.Role == hit.Catalog.Role)
+            ?? _archives.OfType<CatalogEntryView>()
+                .FirstOrDefault(c => c.SourcePath.Equals(hit.Catalog.SourcePath, StringComparison.OrdinalIgnoreCase));
+        if (catalog is null)
+        {
+            System.Windows.MessageBox.Show(this, "That archive is no longer in the workspace.");
+            return;
+        }
+
+        JumpToEntry(catalog, hit.Entry.Name, hit.Entry.FrameIndex, openGallery: false);
+        Activate();
+    }
+
+    private void ShowImageMatchGroup(IReadOnlyList<ImageMatchHit> hits)
+    {
+        if (hits.Count == 0 || _cache is null)
+        {
+            return;
+        }
+
+        // Open the archive with the most hits and show those entries as a gallery group.
+        var bestGroup = hits
+            .GroupBy(h => h.Catalog.SourcePath, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .First();
+        ImageMatchHit first = bestGroup.First();
+        CatalogEntryView? catalog = _archives.OfType<CatalogEntryView>()
+            .FirstOrDefault(c => c.SourcePath.Equals(first.Catalog.SourcePath, StringComparison.OrdinalIgnoreCase)
+                && c.Role == first.Catalog.Role)
+            ?? _archives.OfType<CatalogEntryView>()
+                .FirstOrDefault(c => c.SourcePath.Equals(first.Catalog.SourcePath, StringComparison.OrdinalIgnoreCase));
+        if (catalog is null)
+        {
+            System.Windows.MessageBox.Show(this, "That archive is no longer in the workspace.");
+            return;
+        }
+
+        var entries = bestGroup
+            .Select(h => h.Entry)
+            .GroupBy(e => $"{e.Name}\0{e.FrameIndex}")
+            .Select(g => g.First())
+            .ToList();
+
+        _suppressAutoGallery = true;
+        try
+        {
+            if (WorkspaceBox is not null)
+            {
+                WorkspaceBox.SelectedItem = "All";
+            }
+
+            ArchiveList.SelectedItem = catalog;
+            ArchiveList.ScrollIntoView(catalog);
+            FillEntries();
+            if (GalleryBox is not null)
+            {
+                _ignoreGalleryToggle = true;
+                GalleryBox.IsChecked = false;
+                _ignoreGalleryToggle = false;
+            }
+        }
+        finally
+        {
+            _suppressAutoGallery = false;
+        }
+
+        int otherArchives = hits.Select(h => h.Catalog.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() - 1;
+        StatusText.Text = otherArchives > 0
+            ? $"Image matches: showing {entries.Count} from {catalog.DisplayName} ({otherArchives} other archive(s) still listed in Find from image)."
+            : $"Image matches: {entries.Count} sprite(s) from {catalog.DisplayName}.";
+        Activate();
+        _ = StartGallery(entries, "Image matches");
+    }
 
     private void MapEditorClicked(object sender, RoutedEventArgs e) => EnsureMapEditor();
 
@@ -1673,6 +2384,9 @@ public partial class MainWindow : Window
             _cache = new ArchiveCache();
             _mapTilesets = [];
             _warps = WarpTable.Empty;
+            _contentSearch = null;
+            _contentSearchState = 0;
+            _itemNames = null;
             _archives.Clear();
             var roots = _workspace.Roots.ToList();
             FillClientBox();
@@ -1704,6 +2418,33 @@ public partial class MainWindow : Window
     private void WorkspaceChanged(object sender, SelectionChangedEventArgs e) => FiltersChanged(sender, e);
 
     private void FiltersChanged(object sender, EventArgs e)
+    {
+        if (!IsLoaded || EntryList is null)
+        {
+            return;
+        }
+
+        // Typing in filter boxes fires per keystroke — debounce to avoid re-indexing Unity bundles.
+        if (sender is System.Windows.Controls.TextBox)
+        {
+            _filterDebounce ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
+            _filterDebounce.Tick -= FilterDebounceTick;
+            _filterDebounce.Tick += FilterDebounceTick;
+            _filterDebounce.Stop();
+            _filterDebounce.Start();
+            return;
+        }
+
+        ApplyFiltersNow();
+    }
+
+    private void FilterDebounceTick(object? sender, EventArgs e)
+    {
+        _filterDebounce?.Stop();
+        ApplyFiltersNow();
+    }
+
+    private void ApplyFiltersNow()
     {
         if (!IsLoaded || EntryList is null)
         {
@@ -1785,7 +2526,7 @@ public partial class MainWindow : Window
 
             IEnumerable<ArchiveEntry> entries = archive.Entries;
             string workspace = WorkspaceBox.SelectedItem as string ?? "All";
-            entries = unity ? entries : FilterEntries(entries, workspace);
+            entries = unity ? LodRAssets.PreferSprites(entries) : FilterEntries(entries, workspace);
             entries = IconSheets.Expand(entries);
             entries = FloorTiles.Expand(entries);
             if (HidePalBox?.IsChecked == true)
@@ -1813,7 +2554,11 @@ public partial class MainWindow : Window
             _entryPage = 0;
             BindEntryPage();
             var palettes = new List<string> { "(auto)" };
-            palettes.AddRange(PaletteLocator.Palettes(archive).Select(p => p.Name));
+            if (!unity)
+            {
+                palettes.AddRange(PaletteLocator.Palettes(archive).Select(p => p.Name));
+            }
+
             if (item.Role == ArchiveRole.Maps && !unity)
             {
                 IReadOnlyList<MapAssets> tilesets = GetMapTilesets();
@@ -1849,7 +2594,9 @@ public partial class MainWindow : Window
             PaletteBox.ItemsSource = palettes;
             PaletteBox.SelectedIndex = 0;
 
-            OverlayList.ItemsSource = archive.Entries.Where(x => x.Extension.Equals(".epf", StringComparison.OrdinalIgnoreCase)).Take(400).ToList();
+            OverlayList.ItemsSource = unity
+                ? Array.Empty<ArchiveEntry>()
+                : archive.Entries.Where(x => x.Extension.Equals(".epf", StringComparison.OrdinalIgnoreCase)).Take(400).ToList();
             if (item.Role == ArchiveRole.PlayerSprites)
             {
                 var motions = new List<object> { "Idle" };
@@ -1961,7 +2708,11 @@ public partial class MainWindow : Window
 
         EnsureUnitySpriteIndex();
         _frame = SequenceFrame(EntryList.SelectedItem as ArchiveEntry);
-        RefreshPreview();
+        bool unityBrowse = ArchiveList.SelectedItem is CatalogEntryView cat
+            && UnityBundleArchive.LooksLike(cat.SourcePath)
+            && _cache is not null
+            && _cache.Contains(cat);
+        RefreshPreview(showBusy: !unityBrowse);
         if (_preview?.AutoPlay == true)
         {
             StartClipPlayback();
@@ -2136,6 +2887,10 @@ public partial class MainWindow : Window
         }
 
         MetaBox.Text = result.Metadata;
+        MaybeWarnMissingHangulFont(
+            HangulSupport.ContainsHangul(result.Metadata)
+            || HangulSupport.ContainsHangul(result.Hex)
+            || HangulSupport.ContainsHangul(result.Error));
         UpdateFrameUi(result);
         ApplyPreviewClock(result);
         HydrateClip(result);
@@ -2180,7 +2935,11 @@ public partial class MainWindow : Window
 
         if (result.Hex is not null && result.Image is null)
         {
-            HexBox.Text = result.Hex;
+            // Huge / binary dumps freeze WPF TextBox layout (e.g. portaleffect TextAsset).
+            const int maxHexChars = 96_000;
+            HexBox.Text = result.Hex.Length <= maxHexChars
+                ? result.Hex
+                : result.Hex[..maxHexChars] + "\n… truncated for display";
             HexBox.Visibility = Visibility.Visible;
             UpdateActionBar();
             return;
@@ -3514,12 +4273,16 @@ public partial class MainWindow : Window
         var list = entries as IList<ArchiveEntry> ?? entries.ToList();
         if (list.Any(e => e.Extension.Equals(".sprite", StringComparison.OrdinalIgnoreCase)))
         {
-            return list.Where(e => e.Extension.Equals(".sprite", StringComparison.OrdinalIgnoreCase));
+            return LodRAssets.PreferSprites(list)
+                .Where(e => e.Extension.Equals(".sprite", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.DisplayName, NaturalStringComparer.OrdinalIgnoreCase);
         }
 
         if (list.Any(e => LodRAssets.IsImageEntry(e.Name)))
         {
-            return list.Where(e => LodRAssets.IsImageEntry(e.Name));
+            return LodRAssets.PreferSprites(list)
+                .Where(e => LodRAssets.IsImageEntry(e.Name))
+                .OrderBy(e => e.DisplayName, NaturalStringComparer.OrdinalIgnoreCase);
         }
 
         return catalog.Role switch
@@ -4306,18 +5069,31 @@ public partial class MainWindow : Window
 
 public sealed class SearchHit
 {
-    public SearchHit(CatalogEntryView archive, string entryName, int? frameIndex, string label)
+    public SearchHit(
+        CatalogEntryView archive,
+        string entryName,
+        int? frameIndex,
+        string label,
+        string? snippet = null,
+        CatalogEntryView? tableArchive = null,
+        string? tableEntry = null)
     {
         Archive = archive;
         EntryName = entryName;
         FrameIndex = frameIndex;
         Label = label;
+        Snippet = snippet;
+        TableArchive = tableArchive;
+        TableEntry = tableEntry;
     }
 
     public CatalogEntryView Archive { get; }
     public string EntryName { get; }
     public int? FrameIndex { get; }
     public string Label { get; }
+    public string? Snippet { get; }
+    public CatalogEntryView? TableArchive { get; }
+    public string? TableEntry { get; }
 }
 
 public sealed class CatalogEntryView : CatalogEntry, INotifyPropertyChanged

@@ -1,0 +1,53 @@
+<Window x:Class="DarkAges.Viewer.LexiconEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit search lexicon"
+        Height="560" Width="720"
+        MinHeight="420" MinWidth="560"
+        Background="#1B1D23"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#252830" Padding="8" BorderBrush="#3A3F4B" BorderThickness="0,0,0,1">
+            <WrapPanel>
+                <Button Content="Add / update" Click="AddUpdateClicked"
+                        ToolTip="Create or replace the English key with the synonyms below"/>
+                <Button Content="Remove" Click="RemoveClicked" Margin="8,0,0,0"
+                        ToolTip="Remove the selected English key"/>
+                <Button Content="Save" Click="SaveClicked" Margin="8,0,0,0"
+                        ToolTip="Write search-lexicon.json next to SlashEdit.exe"/>
+                <Button Content="Reset to built-in" Click="ResetClicked" Margin="8,0,0,0"
+                        ToolTip="Delete the user override and restore the shipped lexicon"/>
+            </WrapPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="#1B1D23" Foreground="#9AA0AE">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+        <Grid Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,6"
+                         TextChanged="FilterChanged"
+                         ToolTip="Filter English keys or Korean synonyms"/>
+                <ListBox x:Name="EntryList" DisplayMemberPath="Label" Background="#12141A"
+                         BorderBrush="#3A3F4B"
+                         SelectionChanged="EntrySelected"/>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="English keyword" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <TextBox x:Name="EnglishBox" DockPanel.Dock="Top" Margin="0,0,0,12"/>
+                <TextBlock DockPanel.Dock="Top" Text="Synonyms (comma-separated Korean / related)" Foreground="#9AA0AE" Margin="0,0,0,4"/>
+                <TextBox x:Name="SynonymBox" DockPanel.Dock="Top" MinHeight="96" AcceptsReturn="True"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12"/>
+                <TextBlock Foreground="#9AA0AE" TextWrapping="Wrap"
+                           Text="Edits apply after Save. The file replaces the built-in lexicon while it exists."/>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

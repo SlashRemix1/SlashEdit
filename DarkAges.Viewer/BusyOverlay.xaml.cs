@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media.Animation;
 
 namespace DarkAges.Viewer;
@@ -8,6 +9,7 @@ public partial class BusyOverlay : System.Windows.Controls.UserControl
 {
     private Storyboard? _spin;
     private int _depth;
+    private Action? _onCancel;
 
     public BusyOverlay()
     {
@@ -15,6 +17,8 @@ public partial class BusyOverlay : System.Windows.Controls.UserControl
     }
 
     public bool IsBusy => _depth > 0 || Visibility == Visibility.Visible;
+
+    public bool CanCancel => _onCancel is not null;
 
     public void ShowBusy(string message, bool determinate = false)
     {
@@ -28,9 +32,22 @@ public partial class BusyOverlay : System.Windows.Controls.UserControl
             Bar.Value = 0;
         }
 
+        CancelButton.IsEnabled = true;
+        CancelButton.Content = "Cancel";
         Visibility = Visibility.Visible;
         _spin ??= (Storyboard)FindResource("Spin");
         _spin.Begin();
+        Focus();
+    }
+
+    public void SetCancellable(Action? onCancel)
+    {
+        _onCancel = onCancel;
+        CancelButton.Visibility = onCancel is null ? Visibility.Collapsed : Visibility.Visible;
+        if (onCancel is not null && IsVisible)
+        {
+            CancelButton.Focus();
+        }
     }
 
     public void SetMessage(string message)
@@ -69,8 +86,37 @@ public partial class BusyOverlay : System.Windows.Controls.UserControl
             return;
         }
 
+        _onCancel = null;
+        CancelButton.Visibility = Visibility.Collapsed;
+        CancelButton.IsEnabled = true;
+        CancelButton.Content = "Cancel";
         _spin?.Stop();
         Visibility = Visibility.Collapsed;
         Bar.IsIndeterminate = true;
+    }
+
+    private void CancelClicked(object sender, RoutedEventArgs e) => RequestCancel();
+
+    private void OverlayPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _onCancel is not null)
+        {
+            RequestCancel();
+            e.Handled = true;
+        }
+    }
+
+    private void RequestCancel()
+    {
+        Action? cancel = _onCancel;
+        if (cancel is null)
+        {
+            return;
+        }
+
+        CancelButton.IsEnabled = false;
+        CancelButton.Content = "Cancelling…";
+        MessageText.Text = "Cancelling…";
+        cancel();
     }
 }

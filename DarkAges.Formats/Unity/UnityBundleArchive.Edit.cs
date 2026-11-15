@@ -45,6 +45,7 @@ public sealed partial class UnityBundleArchive
             _mapCache = null;
             _spriteCache.Clear();
             _textureCache.Clear();
+            _sequencePixelCache.Clear();
             return Preview(entry);
         }
         catch (Exception ex)

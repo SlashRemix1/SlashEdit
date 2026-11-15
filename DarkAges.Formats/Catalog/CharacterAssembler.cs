@@ -165,4 +165,151 @@ public static class CharacterAssembler
         string prefix = KhanPieces.PalettePrefix(info);
         return $"{prefix}{id:D3}.pal";
     }
+
+    /// <summary>
+    /// Idle paper-dolls for reverse-image search: nude body + each idle gear piece
+    /// (and bare bodies). Finds full costumes / weapons as they appear on a character,
+    /// not as isolated layer EPFs.
+    /// </summary>
+    /// <param name="allFacings">
+    /// When true, render each outfit at directions 0–7 (needed because screenshots
+    /// rarely match the default DressMeUp facing).
+    /// </param>
+    public static IEnumerable<CompositeCandidate> IdleComposites(IArchive archive, bool allFacings = true)
+    {
+        IReadOnlyList<ArchiveEntry> idle = KhanPieces.CollapseForGallery(archive.Entries);
+        int[] directions = allFacings
+            ? [0, 1, 2, 3, 4, 5, 6, 7]
+            : [KhanPieces.IdleDirection];
+
+        foreach (ArchiveEntry entry in idle)
+        {
+            if (!KhanPieces.TryParse(entry.Name, out KhanPieceInfo info)
+                || KhanPieces.IsPairOnlySlot(info)
+                || KhanPieces.IsEmptySlot(info))
+            {
+                continue;
+            }
+
+            CharacterOutfit? baseOutfit = OutfitFocusing(info);
+            if (baseOutfit is null)
+            {
+                continue;
+            }
+
+            string slot = SlotLabel(info.Slot);
+            foreach (int dir in directions)
+            {
+                var outfit = CloneOutfit(baseOutfit, dir);
+                PixelBuffer pixels;
+                try
+                {
+                    pixels = Render(archive, outfit);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!pixels.HasVisiblePixels())
+                {
+                    continue;
+                }
+
+                yield return new CompositeCandidate(
+                    entry,
+                    pixels,
+                    $"{info.Gender} {slot} #{info.Id:D3} · dir {dir}",
+                    outfit);
+            }
+        }
+    }
+
+    private static CharacterOutfit CloneOutfit(CharacterOutfit src, int direction) => new()
+    {
+        Gender = src.Gender,
+        Motion = src.Motion,
+        Direction = direction,
+        BodyId = src.BodyId,
+        FaceId = src.FaceId,
+        HeadId = src.HeadId,
+        ArmorId = src.ArmorId,
+        CoatId = src.CoatId,
+        WeaponId = src.WeaponId,
+        ShieldId = src.ShieldId,
+        BootsId = src.BootsId,
+        AccessoryId = src.AccessoryId
+    };
+
+    private static CharacterOutfit? OutfitFocusing(KhanPieceInfo info)
+    {
+        var outfit = new CharacterOutfit
+        {
+            Gender = info.Gender,
+            Motion = "01",
+            Direction = KhanPieces.IdleDirection,
+            BodyId = 1
+        };
+
+        switch (info.Slot.ToLowerInvariant())
+        {
+            case "m":
+            case "b":
+            case "n":
+                outfit.BodyId = info.Id;
+                break;
+            case "o":
+                outfit.FaceId = info.Id;
+                break;
+            case "h":
+                outfit.HeadId = info.Id;
+                break;
+            case "i":
+            case "j":
+                outfit.ArmorId = info.Id;
+                break;
+            case "u":
+            case "a":
+                outfit.CoatId = info.Id;
+                break;
+            case "w":
+            case "p":
+                outfit.WeaponId = info.Id;
+                break;
+            case "s":
+                outfit.ShieldId = info.Id;
+                break;
+            case "l":
+                outfit.BootsId = info.Id;
+                break;
+            case "c":
+            case "g":
+                outfit.AccessoryId = info.Id;
+                break;
+            default:
+                return null;
+        }
+
+        return outfit;
+    }
+
+    private static string SlotLabel(string slot) => slot.ToLowerInvariant() switch
+    {
+        "m" or "b" or "n" => "body",
+        "o" => "face",
+        "h" => "head",
+        "i" or "j" => "armor",
+        "u" or "a" => "coat",
+        "w" or "p" => "weapon",
+        "s" => "shield",
+        "l" => "boots",
+        "c" or "g" => "accessory",
+        _ => slot
+    };
 }
+
+public readonly record struct CompositeCandidate(
+    ArchiveEntry FocusEntry,
+    PixelBuffer Pixels,
+    string Label,
+    CharacterOutfit Outfit);

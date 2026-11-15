@@ -38,7 +38,10 @@ public sealed class FolderArchive : IArchive
                 continue;
             }
 
-            var entry = new ArchiveEntry(name, (int)length, () => new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read));
+            var entry = new ArchiveEntry(
+                name,
+                (int)length,
+                () => new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
             _entries.Add(entry);
             _byName[name] = entry;
         }

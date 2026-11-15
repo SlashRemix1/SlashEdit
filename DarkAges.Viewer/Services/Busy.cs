@@ -33,7 +33,11 @@ public static class Busy
 
     public static IProgress<(int Done, int Total, string Name)> Tracker(FrameworkElement? host, string label) =>
         new CoalescedProgress<(int Done, int Total, string Name)>(host, p =>
-            Progress(host, p.Done, p.Total, $"{label} {p.Done}/{p.Total}"));
+        {
+            int pct = p.Total > 0 ? (int)Math.Round(100.0 * p.Done / p.Total) : 0;
+            string name = string.IsNullOrWhiteSpace(p.Name) ? "" : $" · {p.Name}";
+            Progress(host, p.Done, p.Total, $"{label} {p.Done}/{p.Total} ({pct}%){name}");
+        });
 
     public static IProgress<int> Count(FrameworkElement? host, int total, string label) =>
         new CoalescedProgress<int>(host, n =>
@@ -68,16 +72,39 @@ public static class Busy
     public static T Compute<T>(
         FrameworkElement? host,
         string message,
-        Func<IProgress<(int Done, int Total, string Name)>?, T> work)
+        Func<IProgress<(int Done, int Total, string Name)>?, T> work) =>
+        Compute(host, message, (progress, _) => work(progress));
+
+    /// <summary>
+    /// Same as <see cref="Compute{T}(FrameworkElement?, string, Func{IProgress{(int, int, string)}?, T})"/>,
+    /// with a Cancel button (and Esc) that signals <paramref name="work"/>'s token.
+    /// </summary>
+    public static T Compute<T>(
+        FrameworkElement? host,
+        string message,
+        Func<IProgress<(int Done, int Total, string Name)>?, CancellationToken, T> work)
     {
+        using var cts = new CancellationTokenSource();
+        BusyOverlay? overlay = Overlay(host);
         Show(host, message, determinate: true);
+        overlay?.SetCancellable(() =>
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        });
         try
         {
             IProgress<(int Done, int Total, string Name)> progress = Tracker(host, TrimLabel(message));
-            return Pump(() => work(progress));
+            return Pump(() => work(progress, cts.Token));
         }
         finally
         {
+            overlay?.SetCancellable(null);
             Hide(host);
         }
     }

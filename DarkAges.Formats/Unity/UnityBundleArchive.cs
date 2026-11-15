@@ -22,7 +22,9 @@ public sealed partial class UnityBundleArchive : IArchive
     private readonly Dictionary<string, UnityObjectRef> _byEntry = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string File, long PathId), PixelBuffer?> _spriteCache = [];
     private readonly Dictionary<(string File, long PathId), PixelBuffer?> _textureCache = [];
+    private readonly Dictionary<string, List<PixelBuffer>> _sequencePixelCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<AssetsFileInstance> _dirtyFiles = [];
+    private readonly StringBuilder _metaSink = new();
     private PixelBuffer? _mapCache;
     private string? _mapCacheNote;
     private MemoryStream? _unpackedForSave;
@@ -115,6 +117,59 @@ public sealed partial class UnityBundleArchive : IArchive
         }
     }
 
+    /// <summary>
+    /// One entry per sprite sequence (first frame only). Used by reverse-image search so
+    /// walk/attack cels are not scanned hundreds of thousands of times.
+    /// </summary>
+    public IReadOnlyList<ArchiveEntry> RepresentativeImageEntries()
+    {
+        lock (_previewLock)
+        {
+            EnsureSpriteIndexUnlocked();
+            var result = new List<ArchiveEntry>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ArchiveEntry entry in LodRAssets.PreferSprites(_entries))
+            {
+                if (entry.Name.Equals(MapPreviewName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string ext = entry.Extension;
+                if (!ext.Equals(".sprite", StringComparison.OrdinalIgnoreCase)
+                    && !ext.Equals(".texture2d", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (_entryGroup.TryGetValue(entry.Name, out string? group)
+                    && _sequences.TryGetValue(group, out List<SpriteSeqFrame>? frames)
+                    && frames.Count > 0)
+                {
+                    if (!seen.Add(group))
+                    {
+                        continue;
+                    }
+
+                    SpriteSeqFrame first = frames[0];
+                    if (_byName.TryGetValue(first.EntryName, out ArchiveEntry? firstEntry))
+                    {
+                        result.Add(firstEntry);
+                    }
+
+                    continue;
+                }
+
+                if (seen.Add(entry.Name))
+                {
+                    result.Add(entry);
+                }
+            }
+
+            return result;
+        }
+    }
+
     public IReadOnlyList<UnitySpriteClip> ListSpriteClips()
     {
         lock (_previewLock)
@@ -134,8 +189,30 @@ public sealed partial class UnityBundleArchive : IArchive
             }
 
             result.Sort((a, b) => NaturalStringComparer.OrdinalIgnoreCase.Compare(a.Id, b.Id));
-            return result;
+            return ExpandIndividualClips(result);
         }
+    }
+
+    private IReadOnlyList<UnitySpriteClip> ExpandIndividualClips(List<UnitySpriteClip> clips)
+    {
+        var expanded = new List<UnitySpriteClip>(clips.Count);
+        foreach (UnitySpriteClip clip in clips)
+        {
+            if (!LodRAssets.IsIconAsset(SourcePath, clip.Id) || clip.Frames.Count <= 1)
+            {
+                expanded.Add(clip);
+                continue;
+            }
+
+            foreach (UnitySpriteFrame frame in clip.Frames)
+            {
+                string id = $"{clip.Id}_{frame.Index}";
+                expanded.Add(new UnitySpriteClip(id, Effect: false, [frame]));
+            }
+        }
+
+        expanded.Sort((a, b) => NaturalStringComparer.OrdinalIgnoreCase.Compare(a.Id, b.Id));
+        return expanded;
     }
 
     public PixelBuffer? DecodeRawSprite(string entryName)
@@ -147,7 +224,7 @@ public sealed partial class UnityBundleArchive : IArchive
                 return null;
             }
 
-            return DecodeCachedSprite(obj, new StringBuilder());
+            return DecodeCachedSprite(obj);
         }
     }
 
@@ -229,10 +306,23 @@ public sealed partial class UnityBundleArchive : IArchive
 
             if (obj.Info.TypeId == (int)AssetClassID.TextAsset || typeName.Equals("TextAsset", StringComparison.OrdinalIgnoreCase))
             {
-                string text = ReadText(field);
-                if (!string.IsNullOrEmpty(text))
+                byte[] payload = ReadTextBytes(field);
+                if (payload.Length > 0)
                 {
-                    return new UnityObjectPreview { Text = text, Metadata = meta.ToString() };
+                    bool binary = IsBinaryPayload(payload);
+                    meta.AppendLine(binary
+                        ? $"{payload.Length} bytes binary TextAsset (hex preview)"
+                        : $"{payload.Length} bytes text");
+                    if (binary && LooksLikePortalEffect(payload))
+                    {
+                        meta.AppendLine($"PortalEffect markers: {CountMarker(payload, "xi")}");
+                    }
+
+                    return new UnityObjectPreview
+                    {
+                        Text = FormatTextAssetPreview(payload, binary),
+                        Metadata = meta.ToString()
+                    };
                 }
             }
 
@@ -473,14 +563,22 @@ public sealed partial class UnityBundleArchive : IArchive
             return null;
         }
 
+        // Item / skill / spell / UI icons use _N as separate assets, not animation frames.
+        // Monsters and emo/emot packs are sequences (collapsed in the entry list).
+        if (LodRAssets.IsIconAsset(SourcePath, group))
+        {
+            return null;
+        }
+
         bool effect = IsEffectSequence(group);
-        if (frames.Count <= 1 && !effect)
+        bool animated = IsCollapsibleSequence(group);
+        if (frames.Count <= 1 && !effect && !animated)
         {
             return null;
         }
 
         int idx = Math.Clamp(frameIndex, 0, frames.Count - 1);
-        List<PixelBuffer> sequence = DecodeGroupFrames(frames, effect);
+        List<PixelBuffer> sequence = DecodeGroupFrames(group, frames, effect);
         if (sequence.Count == 0)
         {
             return null;
@@ -510,10 +608,15 @@ public sealed partial class UnityBundleArchive : IArchive
         };
     }
 
-    private List<PixelBuffer> DecodeGroupFrames(List<SpriteSeqFrame> frames, bool effect)
+    private List<PixelBuffer> DecodeGroupFrames(string group, List<SpriteSeqFrame> frames, bool effect)
     {
+        string cacheKey = effect ? group + "\0fx" : group;
+        if (_sequencePixelCache.TryGetValue(cacheKey, out List<PixelBuffer>? cached))
+        {
+            return cached;
+        }
+
         var sequence = new List<PixelBuffer>(frames.Count);
-        var sink = new StringBuilder();
         foreach (SpriteSeqFrame frame in frames)
         {
             if (!_byEntry.TryGetValue(frame.EntryName, out UnityObjectRef? obj))
@@ -521,7 +624,7 @@ public sealed partial class UnityBundleArchive : IArchive
                 continue;
             }
 
-            PixelBuffer? raw = DecodeCachedSprite(obj, sink);
+            PixelBuffer? raw = DecodeCachedSprite(obj);
             if (raw is null)
             {
                 continue;
@@ -530,10 +633,11 @@ public sealed partial class UnityBundleArchive : IArchive
             sequence.Add(effect ? EffectStage.ComposeUnity(raw, frame.PivotX, frame.PivotY) : raw);
         }
 
+        _sequencePixelCache[cacheKey] = sequence;
         return sequence;
     }
 
-    private PixelBuffer? DecodeCachedSprite(UnityObjectRef obj, StringBuilder meta)
+    private PixelBuffer? DecodeCachedSprite(UnityObjectRef obj)
     {
         var key = (obj.File.name, obj.Info.PathId);
         if (_spriteCache.TryGetValue(key, out PixelBuffer? cached))
@@ -544,7 +648,8 @@ public sealed partial class UnityBundleArchive : IArchive
         try
         {
             AssetTypeValueField field = _manager.GetBaseField(obj.File, obj.Info);
-            PixelBuffer? pixels = DecodeSprite(obj.File, field, meta, out _, out _);
+            _metaSink.Clear();
+            PixelBuffer? pixels = DecodeSprite(obj.File, field, _metaSink, out _, out _);
             _spriteCache[key] = pixels;
             return pixels;
         }
@@ -568,6 +673,16 @@ public sealed partial class UnityBundleArchive : IArchive
             string typeName = TypeName(obj.Info);
             bool sprite = obj.Info.TypeId == (int)AssetClassID.Sprite
                 || typeName.Equals("Sprite", StringComparison.OrdinalIgnoreCase);
+            // Skip atlas Texture2D during index — PreferSprites hides them when sprites exist.
+            bool nameOnly = !sprite
+                && (obj.Info.TypeId == (int)AssetClassID.AudioClip
+                    || typeName.Equals("AudioClip", StringComparison.OrdinalIgnoreCase)
+                    || obj.Info.TypeId == (int)AssetClassID.TextAsset
+                    || typeName.Equals("TextAsset", StringComparison.OrdinalIgnoreCase));
+            if (!sprite && !nameOnly)
+            {
+                continue;
+            }
 
             try
             {
@@ -616,8 +731,57 @@ public sealed partial class UnityBundleArchive : IArchive
             list.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         }
 
+        CollapseAnimationSequenceEntries();
         ResortEntriesByDisplayName();
         _spriteIndexReady = true;
+    }
+
+    /// <summary>
+    /// Keep one list row per monster / emote / effect sequence (group name).
+    /// Extra _1/_2/… frames stay playable via the sequence index.
+    /// </summary>
+    private void CollapseAnimationSequenceEntries()
+    {
+        var keepFrames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var collapsibleGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, List<SpriteSeqFrame>> kv in _sequences)
+        {
+            if (!IsCollapsibleSequence(kv.Key) || kv.Value.Count == 0)
+            {
+                continue;
+            }
+
+            collapsibleGroups.Add(kv.Key);
+            SpriteSeqFrame first = kv.Value.FirstOrDefault(f => f.Frame == 0) ?? kv.Value[0];
+            keepFrames.Add(first.EntryName);
+            if (_byName.TryGetValue(first.EntryName, out ArchiveEntry? listed)
+                && !listed.DisplayName.Equals(kv.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                // List as monster012 / emo003 rather than …_0; Play still walks every frame.
+                listed.DisplayName = kv.Key;
+            }
+        }
+
+        if (keepFrames.Count == 0)
+        {
+            return;
+        }
+
+        _entries.RemoveAll(entry =>
+        {
+            if (entry.Name.Equals(MapPreviewName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!_entryGroup.TryGetValue(entry.Name, out string? group)
+                || !collapsibleGroups.Contains(group))
+            {
+                return false;
+            }
+
+            return !keepFrames.Contains(entry.Name);
+        });
     }
 
     private void ResortEntriesByDisplayName()
@@ -643,14 +807,23 @@ public sealed partial class UnityBundleArchive : IArchive
     private bool IsEffectBundle()
     {
         string file = Path.GetFileName(SourcePath);
-        return file.StartsWith("effect", StringComparison.OrdinalIgnoreCase);
+        return file.StartsWith("effect", StringComparison.OrdinalIgnoreCase)
+            || file.Contains("effect", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsEffectSequence(string group) =>
         group.StartsWith("effect", StringComparison.OrdinalIgnoreCase)
         || group.StartsWith("efct", StringComparison.OrdinalIgnoreCase)
-        || group.StartsWith("spell", StringComparison.OrdinalIgnoreCase)
         || IsEffectBundle();
+
+    /// <summary>
+    /// Sequences shown as one entry (Play walks frames): effects, monsters, emo/emot.
+    /// </summary>
+    private bool IsCollapsibleSequence(string group) =>
+        IsEffectSequence(group)
+        || LodRAssets.IsAnimatedSequenceName(group)
+        || LodRAssets.IsAnimatedSequenceBundle(Path.GetFileName(SourcePath))
+            && !LodRAssets.IsIconSpriteName(group);
 
     private static bool TryParseSequence(string name, out string group, out int frame)
     {
@@ -783,20 +956,135 @@ public sealed partial class UnityBundleArchive : IArchive
         return null;
     }
 
-    private static string ReadText(AssetTypeValueField field)
+    private static byte[] ReadTextBytes(AssetTypeValueField field)
     {
         AssetTypeValueField script = field["m_Script"];
         if (script.IsDummy)
         {
-            return "";
+            return [];
         }
 
         if (script.AsByteArray is { Length: > 0 } bytes)
         {
-            return Encoding.UTF8.GetString(bytes);
+            return bytes;
         }
 
-        return script.AsString ?? "";
+        string? asString = script.AsString;
+        return string.IsNullOrEmpty(asString) ? [] : Encoding.UTF8.GetBytes(asString);
+    }
+
+    private static string ReadText(AssetTypeValueField field)
+    {
+        byte[] bytes = ReadTextBytes(field);
+        if (bytes.Length == 0)
+        {
+            return "";
+        }
+
+        return FormatTextAssetPreview(bytes, IsBinaryPayload(bytes));
+    }
+
+    /// <summary>
+    /// Binary TextAssets (e.g. portaleffect) must not be dumped raw into a WPF TextBox —
+    /// control characters freeze layout on large payloads.
+    /// </summary>
+    private static string FormatTextAssetPreview(byte[] bytes, bool binary)
+    {
+        if (!binary)
+        {
+            string text = Encoding.UTF8.GetString(bytes);
+            const int maxChars = 64_000;
+            if (text.Length <= maxChars)
+            {
+                return text;
+            }
+
+            return text[..maxChars] + $"\n… truncated ({bytes.Length} bytes total)";
+        }
+
+        const int maxBytes = 2048;
+        int n = Math.Min(maxBytes, bytes.Length);
+        var sb = new StringBuilder(n * 4 + 80);
+        sb.AppendLine($"{bytes.Length} bytes binary — showing first {n}:");
+        for (int i = 0; i < n; i += 16)
+        {
+            sb.Append($"{i:X4}  ");
+            int len = Math.Min(16, n - i);
+            for (int j = 0; j < len; j++)
+            {
+                sb.Append($"{bytes[i + j]:X2} ");
+            }
+
+            sb.Append(' ');
+            for (int j = 0; j < len; j++)
+            {
+                byte b = bytes[i + j];
+                sb.Append(b is >= 32 and <= 126 ? (char)b : '.');
+            }
+
+            sb.AppendLine();
+        }
+
+        if (bytes.Length > n)
+        {
+            sb.AppendLine($"… {bytes.Length - n} more bytes not shown");
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool IsBinaryPayload(byte[] bytes)
+    {
+        if (bytes.Length == 0)
+        {
+            return false;
+        }
+
+        int sample = Math.Min(bytes.Length, 4096);
+        int weird = 0;
+        for (int i = 0; i < sample; i++)
+        {
+            byte b = bytes[i];
+            if (b == 0 || (b < 32 && b is not (9 or 10 or 13)))
+            {
+                weird++;
+            }
+        }
+
+        return weird * 20 >= sample; // ≥5% control/null → treat as binary
+    }
+
+    private static bool LooksLikePortalEffect(byte[] bytes) =>
+        bytes.Length >= 2 && bytes[0] == (byte)'x' && bytes[1] == (byte)'i';
+
+    private static int CountMarker(byte[] bytes, string marker)
+    {
+        if (marker.Length == 0 || bytes.Length < marker.Length)
+        {
+            return 0;
+        }
+
+        byte[] needle = Encoding.ASCII.GetBytes(marker);
+        int count = 0;
+        for (int i = 0; i <= bytes.Length - needle.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (bytes[i + j] != needle[j])
+                {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static string DumpFields(AssetTypeValueField field, int maxDepth, int maxLines)

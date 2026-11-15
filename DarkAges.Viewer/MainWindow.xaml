@@ -122,6 +122,8 @@
                                       ToolTip="Point at radvideo64.exe so MP4/AVI can be compressed to Bink 1. Existing .bik files can be replaced without this."/>
                             <MenuItem Header="Import cinematic…" Click="ImportCinematicClicked"
                                       ToolTip="Replace or add a .bik in a DAT. Common video files need RAD Video Tools; a ready .bik does not."/>
+                            <MenuItem Header="Find from image…" Click="ReverseImageSearchClicked"
+                                      ToolTip="Drop a screenshot to find matching item / gear / UI sprites in the loaded client."/>
                             <Separator x:Name="AboutSeparator"/>
                             <MenuItem x:Name="AboutMenuItem" Header="About" Click="AboutClicked"/>
                         </ContextMenu>
@@ -134,6 +136,15 @@
                 <TextBlock x:Name="StatusText" Text="Browse to a client folder to load its DATs, maps, and metadata."/>
             </StatusBarItem>
         </StatusBar>
+        <Border x:Name="HangulFontBanner" DockPanel.Dock="Bottom" Visibility="Collapsed"
+                Background="#3A3018" BorderBrush="#8A7040" BorderThickness="0,1,0,0" Padding="10,6">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Dismiss" Margin="12,0,0,0" Padding="10,4"
+                        Click="DismissHangulFontBanner" ToolTip="Hide this note for this session"/>
+                <TextBlock x:Name="HangulFontBannerText" Foreground="#F2E6C8" TextWrapping="Wrap"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
         <Grid Margin="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280"/>
@@ -147,11 +158,84 @@
             <DockPanel Grid.Column="0">
                 <ComboBox x:Name="WorkspaceBox" DockPanel.Dock="Top" Margin="0,0,0,8" SelectionChanged="WorkspaceChanged"/>
                 <TextBlock DockPanel.Dock="Top" Text="Search all archives" Foreground="#9AA0AE" Margin="0,0,0,4"/>
-                <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,0,0,8"
-                         ToolTip="item 12, skill 4, floor 100, stc, filenames. Press Enter."
-                         KeyDown="SearchKeyDown"/>
-                <ListBox x:Name="SearchList" DockPanel.Dock="Top" MaxHeight="180" Margin="0,0,0,8" Visibility="Collapsed"
-                         DisplayMemberPath="Label" MouseDoubleClick="SearchResultActivated" KeyDown="SearchResultKeyDown"/>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <TextBox x:Name="SearchBox"
+                             ToolTip="English or Korean. Lexicon expands EN→KR. Type for suggestions; Enter searches."
+                             TextChanged="SearchTextChanged"
+                             PreviewKeyDown="SearchPreviewKeyDown"
+                             LostKeyboardFocus="SearchLostFocus"/>
+                    <Popup x:Name="SearchSuggestPopup"
+                           PlacementTarget="{Binding ElementName=SearchBox}"
+                           Placement="Bottom"
+                           StaysOpen="True"
+                           AllowsTransparency="True"
+                           Focusable="False">
+                        <Border Background="#1A1C22" BorderBrush="#3A3F4B" BorderThickness="1" MinWidth="260" MaxHeight="180">
+                            <ListBox x:Name="SearchSuggestList"
+                                     DisplayMemberPath="Label"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     MaxHeight="176"
+                                     PreviewMouseLeftButtonUp="SearchSuggestClicked"
+                                     KeyDown="SearchSuggestKeyDown"/>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                        <Button DockPanel.Dock="Right" Content="More ▾" Width="64" Margin="6,0,0,0"
+                                Click="OpenButtonMenu"
+                                ToolTip="Edit or reset the EN↔KR search lexicon">
+                            <Button.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Edit lexicon…" Click="EditLexiconClicked"
+                                              ToolTip="Add, change, or remove dictionary keywords"/>
+                                    <MenuItem Header="Reset lexicon to built-in" Click="ResetLexiconClicked"
+                                              ToolTip="Delete the user search-lexicon.json and restore shipped defaults"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                        <Button x:Name="LexiconToggleButton" Content="EN↔KR lexicon…"
+                                HorizontalAlignment="Stretch"
+                                Click="LexiconToggleClicked"
+                                ToolTip="Browse dictionary keywords. Click one to search."/>
+                    </DockPanel>
+                    <Border x:Name="LexiconPanel" Visibility="Collapsed" MaxHeight="168"
+                            BorderBrush="#3A3F4B" BorderThickness="1" Padding="4" Background="#14161B">
+                        <DockPanel>
+                            <TextBox x:Name="LexiconFilterBox" DockPanel.Dock="Top" Margin="0,0,0,4"
+                                     ToolTip="Filter lexicon keywords"
+                                     TextChanged="LexiconFilterChanged"/>
+                            <ListBox x:Name="LexiconList"
+                                     DisplayMemberPath="Label"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     PreviewMouseLeftButtonUp="LexiconItemClicked"
+                                     KeyDown="LexiconListKeyDown"
+                                     ToolTip="Click a keyword to search (English → Korean synonyms)."/>
+                        </DockPanel>
+                    </Border>
+                </DockPanel>
+                <Border x:Name="SearchResultsPanel" DockPanel.Dock="Top" Margin="0,0,0,8" Visibility="Collapsed"
+                        BorderBrush="#3A3F4B" BorderThickness="1" Padding="4" Background="#14161B">
+                    <DockPanel>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                            <Button DockPanel.Dock="Right" Content="✕" Width="28" Padding="0,2"
+                                    Click="CloseSearchResultsClicked"
+                                    ToolTip="Close results (Esc)"/>
+                            <TextBlock x:Name="SearchResultsHeader" Text="Results" Foreground="#9AA0AE"
+                                       VerticalAlignment="Center"
+                                       ToolTip="Click a result to open it. List stays open until you close it."/>
+                        </DockPanel>
+                        <ListBox x:Name="SearchList" MaxHeight="220"
+                                 DisplayMemberPath="Label"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 SelectionChanged="SearchResultSelectionChanged"
+                                 MouseDoubleClick="SearchResultActivated"
+                                 KeyDown="SearchResultKeyDown"/>
+                    </DockPanel>
+                </Border>
                 <TextBlock x:Name="FavoriteHeader" DockPanel.Dock="Top" Text="Favorites" Foreground="#9AA0AE" Margin="0,0,0,4"/>
                 <ListBox x:Name="FavoriteList" DockPanel.Dock="Top" MaxHeight="140" Margin="0,0,0,8"
                          DisplayMemberPath="Label"
@@ -297,7 +381,7 @@
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Cursor="Hand"/>
                                     <Canvas x:Name="PreviewWarpLabels" IsHitTestVisible="False"/>
                                 </Grid>
-                                <TextBox x:Name="HexBox" Visibility="Collapsed" IsReadOnly="True" FontFamily="Consolas" Background="Transparent" Foreground="#E8E6E3" BorderThickness="0" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"/>
+                                <TextBox x:Name="HexBox" Visibility="Collapsed" IsReadOnly="True" FontFamily="Consolas, Malgun Gothic, Gulim, Segoe UI" Background="Transparent" Foreground="#E8E6E3" BorderThickness="0" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"/>
                                 <TextBlock x:Name="ErrorText" Visibility="Collapsed" Foreground="#E88" Margin="16" TextWrapping="Wrap"/>
                             </Grid>
                         </ScrollViewer>
@@ -479,7 +563,7 @@
                     </DockPanel>
                 </GroupBox>
                 <GroupBox Header="Metadata">
-                    <TextBox x:Name="MetaBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" BorderThickness="0" Foreground="#E8E6E3" FontFamily="Consolas"/>
+                    <TextBox x:Name="MetaBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="Transparent" BorderThickness="0" Foreground="#E8E6E3" FontFamily="Consolas, Malgun Gothic, Gulim, Segoe UI"/>
                 </GroupBox>
             </DockPanel>
         </Grid>

@@ -53,6 +53,18 @@ public sealed class LodTableFile
 
     public static LodTableFile Load(byte[] data)
     {
+        try
+        {
+            return LoadCore(data);
+        }
+        catch (Exception ex)
+        {
+            return new LodTableFile { Notes = "Failed to parse: " + ex.Message };
+        }
+    }
+
+    private static LodTableFile LoadCore(byte[] data)
+    {
         byte[] decoded = NeedsXor(data) ? Xor55Stream.Apply(data) : data;
         using var stream = new MemoryStream(decoded, writable: false);
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
@@ -81,67 +93,47 @@ public sealed class LodTableFile
         }
 
         var kinds = headers.Select(Classify).ToArray();
-        var rows = new List<string[]>(rowCount);
+        var rows = new List<string[]>(Math.Min(rowCount, 64_000));
         string note = "";
         int resyncs = 0;
-        try
+        int maxResyncs = Math.Min(2_000, Math.Max(32, rowCount / 4));
+        // Avoid throw/catch for normal bad rows — first-chance exceptions freeze debuggers.
+        for (int r = 0; r < rowCount && stream.Position < stream.Length; r++)
         {
-            for (int r = 0; r < rowCount && stream.Position < stream.Length; r++)
+            long rowStart = stream.Position;
+            if (!TryReadRow(reader, headers.Count, kinds, out string[]? row) || row is null)
             {
-                long rowStart = stream.Position;
-                try
+                if (!TryResyncToString(reader) || stream.Position <= rowStart)
                 {
-                    var row = new string[headers.Count];
-                    for (int c = 0; c < headers.Count; c++)
-                    {
-                        row[c] = ReadValue(reader, kinds[c]);
-                    }
-
-                    if (kinds[0] == FieldKind.String
-                        && (row[0].Length is < 1 or > 80 || !LooksLikeName(row[0])))
-                    {
-                        throw new InvalidDataException("Unreadable ID");
-                    }
-
-                    rows.Add(row);
+                    note = $"Parsed {rows.Count} of {rowCount} rows (stopped at 0x{rowStart:X}).";
+                    break;
                 }
-                catch (Exception ex)
+
+                resyncs++;
+                if (resyncs > maxResyncs)
                 {
-                    if (!TryResyncToString(reader) || stream.Position <= rowStart)
-                    {
-                        throw new InvalidDataException(
-                            $"row {r} at 0x{rowStart:X}: {ex.Message}",
-                            ex);
-                    }
-
-                    resyncs++;
-                    if (resyncs > rowCount)
-                    {
-                        throw new InvalidDataException(
-                            $"row {r} at 0x{rowStart:X}: {ex.Message}",
-                            ex);
-                    }
-
-                    r--;
+                    note = $"Parsed {rows.Count} of {rowCount} rows ({resyncs} resyncs, capped).";
+                    break;
                 }
+
+                r--;
+                continue;
             }
 
-            long leftover = stream.Length - stream.Position;
-            if (resyncs > 0)
-            {
-                note = $"{rows.Count} rows ({resyncs} resyncs)";
-            }
-
-            if (leftover > 8)
-            {
-                note = string.IsNullOrEmpty(note)
-                    ? $"{rows.Count} rows, {leftover} leftover bytes (some list columns may be approximate)."
-                    : $"{note}, {leftover} leftover bytes.";
-            }
+            rows.Add(row);
         }
-        catch (Exception ex)
+
+        long leftover = stream.Length - stream.Position;
+        if (string.IsNullOrEmpty(note) && resyncs > 0)
         {
-            note = $"Parsed {rows.Count} of {rowCount} rows. {ex.Message}";
+            note = $"{rows.Count} rows ({resyncs} resyncs)";
+        }
+
+        if (leftover > 8)
+        {
+            note = string.IsNullOrEmpty(note)
+                ? $"{rows.Count} rows, {leftover} leftover bytes (some list columns may be approximate)."
+                : $"{note}, {leftover} leftover bytes.";
         }
 
         return new LodTableFile
@@ -257,12 +249,17 @@ public sealed class LodTableFile
         {
             for (int i = 0; i < count; i++)
             {
-                parts.Add(Read7BitString(reader));
+                if (!TryRead7BitString(reader, out string part))
+                {
+                    break;
+                }
+
+                parts.Add(part);
             }
         }
         else
         {
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count && reader.BaseStream.Position + 4 <= reader.BaseStream.Length; i++)
             {
                 parts.Add(reader.ReadInt32().ToString());
             }
@@ -272,6 +269,73 @@ public sealed class LodTableFile
         return string.Join(", ", parts.Take(32)) + extra;
     }
 
+    private static bool TryReadRow(BinaryReader reader, int columns, FieldKind[] kinds, out string[]? row)
+    {
+        row = null;
+        long start = reader.BaseStream.Position;
+        try
+        {
+            var values = new string[columns];
+            for (int c = 0; c < columns; c++)
+            {
+                if (!TryReadValue(reader, kinds[c], out string? cell) || cell is null)
+                {
+                    reader.BaseStream.Position = start;
+                    return false;
+                }
+
+                values[c] = cell;
+            }
+
+            if (kinds[0] == FieldKind.String
+                && (values[0].Length is < 1 or > 80 || !LooksLikeName(values[0])))
+            {
+                reader.BaseStream.Position = start;
+                return false;
+            }
+
+            row = values;
+            return true;
+        }
+        catch
+        {
+            reader.BaseStream.Position = start;
+            return false;
+        }
+    }
+
+    private static bool TryReadValue(BinaryReader reader, FieldKind kind, out string? value)
+    {
+        value = null;
+        long start = reader.BaseStream.Position;
+        try
+        {
+            value = kind switch
+            {
+                FieldKind.String => TryRead7BitString(reader, out string s) ? s : null,
+                FieldKind.Byte => reader.BaseStream.Position < reader.BaseStream.Length
+                    ? reader.ReadByte().ToString()
+                    : null,
+                FieldKind.Float => reader.BaseStream.Position + 4 <= reader.BaseStream.Length
+                    ? reader.ReadSingle().ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : null,
+                FieldKind.Flag => ReadFlag(reader),
+                FieldKind.List => ReadList(reader),
+                FieldKind.NpcList => ReadNpcList(reader),
+                _ => reader.BaseStream.Position + 4 <= reader.BaseStream.Length
+                    ? reader.ReadInt32().ToString()
+                    : null
+            };
+            return value is not null;
+        }
+        catch
+        {
+            reader.BaseStream.Position = start;
+            value = null;
+            return false;
+        }
+    }
+
     private static bool TryResyncToString(BinaryReader reader)
     {
         Stream stream = reader.BaseStream;
@@ -279,18 +343,12 @@ public sealed class LodTableFile
         while (stream.Position < end)
         {
             long pos = stream.Position;
-            try
+            if (TryRead7BitString(reader, out string value)
+                && value.Length is >= 2 and <= 80
+                && LooksLikeName(value))
             {
-                string value = Read7BitString(reader);
-                if (value.Length is >= 2 and <= 80 && LooksLikeName(value))
-                {
-                    stream.Position = pos;
-                    return true;
-                }
-            }
-            catch
-            {
-                // keep scanning
+                stream.Position = pos;
+                return true;
             }
 
             stream.Position = pos + 1;
@@ -336,7 +394,7 @@ public sealed class LodTableFile
         }
 
         reader.BaseStream.Position = pos;
-        return Read7BitString(reader);
+        return TryRead7BitString(reader, out string text) ? text : "";
     }
 
     private static string ReadNpcList(BinaryReader reader)
@@ -355,7 +413,12 @@ public sealed class LodTableFile
         var parts = new List<string>(count);
         for (int i = 0; i < count; i++)
         {
-            string name = Read7BitString(reader);
+            if (!TryRead7BitString(reader, out string name)
+                || reader.BaseStream.Position + 8 > reader.BaseStream.Length)
+            {
+                break;
+            }
+
             int a = reader.ReadInt32();
             int b = reader.ReadInt32();
             parts.Add($"{name} ({a},{b})");
@@ -364,13 +427,28 @@ public sealed class LodTableFile
         return string.Join("; ", parts);
     }
 
-    private static string Read7BitString(BinaryReader reader)
+    private static string Read7BitString(BinaryReader reader) =>
+        TryRead7BitString(reader, out string value) ? value : "";
+
+    private static bool TryRead7BitString(BinaryReader reader, out string value)
     {
+        value = "";
+        Stream stream = reader.BaseStream;
+        if (stream.Position >= stream.Length)
+        {
+            return false;
+        }
+
         int n = 0;
         int shift = 0;
         byte b;
         do
         {
+            if (stream.Position >= stream.Length)
+            {
+                return false;
+            }
+
             b = reader.ReadByte();
             n |= (b & 0x7F) << shift;
             shift += 7;
@@ -379,10 +457,22 @@ public sealed class LodTableFile
 
         if (n is < 0 or > 512)
         {
-            throw new InvalidDataException($"String length {n}");
+            return false;
         }
 
-        return n == 0 ? "" : Encoding.UTF8.GetString(reader.ReadBytes(n));
+        if (n == 0)
+        {
+            value = "";
+            return true;
+        }
+
+        if (stream.Position + n > stream.Length)
+        {
+            return false;
+        }
+
+        value = Encoding.UTF8.GetString(reader.ReadBytes(n));
+        return true;
     }
 
     private enum FieldKind
