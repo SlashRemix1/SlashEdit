@@ -133,7 +133,7 @@ public sealed partial class UnityBundleArchive : IArchive
                 result.Add(new UnitySpriteClip(kv.Key, IsEffectSequence(kv.Key), frames));
             }
 
-            result.Sort((a, b) => string.Compare(a.Id, b.Id, StringComparison.OrdinalIgnoreCase));
+            result.Sort((a, b) => NaturalStringComparer.OrdinalIgnoreCase.Compare(a.Id, b.Id));
             return result;
         }
     }
@@ -565,11 +565,9 @@ public sealed partial class UnityBundleArchive : IArchive
         foreach (KeyValuePair<string, UnityObjectRef> kv in _byEntry)
         {
             UnityObjectRef obj = kv.Value;
-            if (obj.Info.TypeId != (int)AssetClassID.Sprite
-                && !TypeName(obj.Info).Equals("Sprite", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            string typeName = TypeName(obj.Info);
+            bool sprite = obj.Info.TypeId == (int)AssetClassID.Sprite
+                || typeName.Equals("Sprite", StringComparison.OrdinalIgnoreCase);
 
             try
             {
@@ -584,6 +582,11 @@ public sealed partial class UnityBundleArchive : IArchive
                     && !listed.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
                 {
                     listed.DisplayName = name;
+                }
+
+                if (!sprite)
+                {
+                    continue;
                 }
 
                 ReadPivot(field, out float pivotX, out float pivotY);
@@ -613,7 +616,28 @@ public sealed partial class UnityBundleArchive : IArchive
             list.Sort((a, b) => a.Frame.CompareTo(b.Frame));
         }
 
+        ResortEntriesByDisplayName();
         _spriteIndexReady = true;
+    }
+
+    private void ResortEntriesByDisplayName()
+    {
+        ArchiveEntry? mapPreview = null;
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].Name.Equals(MapPreviewName, StringComparison.OrdinalIgnoreCase))
+            {
+                mapPreview = _entries[i];
+                _entries.RemoveAt(i);
+                break;
+            }
+        }
+
+        _entries.Sort((a, b) => NaturalStringComparer.OrdinalIgnoreCase.Compare(a.DisplayName, b.DisplayName));
+        if (mapPreview is not null)
+        {
+            _entries.Insert(0, mapPreview);
+        }
     }
 
     private bool IsEffectBundle()

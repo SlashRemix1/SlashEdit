@@ -1775,9 +1775,16 @@ public partial class MainWindow : Window
         try
         {
             IArchive archive = OpenSelectedArchive(item);
+            bool unity = archive is UnityBundleArchive;
+            if (unity
+                && archive is UnityBundleArchive unityArchive
+                && !unityArchive.SpriteIndexReady)
+            {
+                Busy.Run(this, "Indexing Unity objects…", unityArchive.EnsureSpriteIndex);
+            }
+
             IEnumerable<ArchiveEntry> entries = archive.Entries;
             string workspace = WorkspaceBox.SelectedItem as string ?? "All";
-            bool unity = archive is UnityBundleArchive;
             entries = unity ? entries : FilterEntries(entries, workspace);
             entries = IconSheets.Expand(entries);
             entries = FloorTiles.Expand(entries);
@@ -2382,8 +2389,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        Busy.Run(this, "Indexing sprite frames…", unity.EnsureSpriteIndex);
-        CollectionViewSource.GetDefaultView(EntryList.ItemsSource)?.Refresh();
+        ArchiveEntry? selected = EntryList?.SelectedItem as ArchiveEntry;
+        Busy.Run(this, "Indexing Unity objects…", unity.EnsureSpriteIndex);
+        if (_entrySource.Count > 0)
+        {
+            _entrySource = _entrySource
+                .OrderBy(e => e.Name.Equals(UnityBundleArchive.MapPreviewName, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(e => e.DisplayName, NaturalStringComparer.OrdinalIgnoreCase)
+                .ToList();
+            BindEntryPage();
+            if (selected is not null)
+            {
+                RevealListed(selected);
+            }
+        }
+        else if (EntryList?.ItemsSource is not null)
+        {
+            CollectionViewSource.GetDefaultView(EntryList.ItemsSource)?.Refresh();
+        }
     }
 
     private bool ContactSheetBlocksPlay() =>

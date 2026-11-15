@@ -1,4 +1,5 @@
 using DarkAges.Formats.Data;
+using DarkAges.Formats.IO;
 using DarkAges.Formats.Unity;
 
 namespace DarkAges.Formats.Catalog;
@@ -95,7 +96,7 @@ public static class DatCatalog
         return results
             .DistinctBy(e => $"{e.SourcePath}\0{(int)e.Role}", StringComparer.OrdinalIgnoreCase)
             .OrderBy(e => e.Role)
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Title, NaturalStringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

@@ -4,7 +4,7 @@ Windows viewer and editors for Dark Ages client archives (DAT, maps, metafiles, 
 
 The app ships **empty**. Point it at a client folder you already have. This repository does not include DATs, maps, area dumps, or other game data.
 
-Author: SlashRemix · Version: 1.1 · Last updated: 11/15/2026
+Author: SlashRemix · Version: 1.1.1 · Last updated: 11/15/2026
 
 ## Requirements
 
